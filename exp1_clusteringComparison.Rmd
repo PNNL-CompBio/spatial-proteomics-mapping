@@ -135,7 +135,11 @@ Here we do preprocessing, which works, cluster analysis, the clustering. We iter
 
 
 kmeanClusterPlot<-function(sce,prefix){
+  #find optimal number of clusters
   
+  #cluseter data
+  
+  #label clusters and compare with original labels
 }
 
 bayesSpaceClusterPlot<-function(sce,prefix){
@@ -174,6 +178,14 @@ bayesSpaceClusterPlot<-function(sce,prefix){
     ggtitle(paste('Image',prefix,'data'))
   
   
+
+  res=cowplot::plot_grid(c0,c1)
+  print(res)
+
+  ggsave(paste0(prefix,'Islet.pdf'),res)
+  ggsave(paste0(prefix,'Islet.png'),res)
+
+  
   return(panc2)
 
 }
@@ -205,136 +217,16 @@ loadData<-function(colData){
 }
 #
 
-#' plotDataPerImage
-#' This function tunes the cluster, identifies the best number of cluster
-plotDataPerImage<-function(image,countdat,prefix=''){
-
-  
-#  pance3 <- spatialEnhance(panc3,q=3,d=5)
-#  
-#  pance4 <- spatialEnhance(panc4,q=4,d=5)
-
-  
-    
-   c2=clusterPlot(panc3,
-              palette=cols)+
-    ggtitle(paste('Image',image,'data'))
-  
-  c3=clusterPlot(panc4,
-              palette=cols)+
-    ggtitle(paste('Image',image,'data'))
-  
-    c4=clusterPlot(panc5,
-              palette=cols)+
-    ggtitle(paste('Image',image,'data'))
-    
-      c5=clusterPlot(panc6,
-              palette=cols)+
-    ggtitle(paste('Image',image,'data'))
- # c4=clusterPlot(pance4,
-#              palette=cols)+
-#    ggtitle(paste('Image',image,'subspot'))
-
-  res=cowplot::plot_grid(c0,c1,c2,c3,c4,c5)
-  print(res)
-
-  ggsave(paste0(prefix,'Islet',image,'.pdf'),res)
-  ggsave(paste0(prefix,'Islet',image,'.png'),res)
-
-  return(panc)
-}
-
 
 ```
+Now that we defined the clustering funcitons we can compare
 
-Now we can iterate over each of the spots. To see if they agree with our annotations. 
 
-## Original images
+## Compare clustering algorithms and labels
 
 ```{r cluster, message=F,warning=F}
 
 scObjs<-lapply(unique(colData$Image),function(x) plotDataPerImage(x,counts,'Un-normalized'))
 
 ##just do this manually
-
-accuracy <- rbind(data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,5,5,3,0,0,0),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,3,3,5,8,8,8),
-                       numClusters=c(2,2,2,2,2,2,2)),
-                  data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,4,0,0,0,0,0),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,3,8,8,8,8,7),
-                       numClusters=c(3,3,3,3,3,3,3)),
-                  data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,4,0,0,0,0,1),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,3,8,8,8,8,7),
-                       numClusters=c(4,4,4,4,4,4,4)),
-                   data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,0,0,0,0,0,0),
-                       FN=c(0,0,0,1,0,0,0),
-                       TN=c(8,8,8,7,8,8,8),
-                       numClusters=c(5,5,5,5,5,5,5)))%>%
-  mutate(Specificity=TN/(TN+FP),Sensitivity=TP/(TP+FN))
-
-ggplot(accuracy,aes(y=Specificity,fill=image,
-                    x=as.factor(numClusters)))+
-  geom_bar(stat='identity',position='dodge')+
-  scale_fill_manual(values=RColorBrewer::brewer.pal(7,'Dark2'))                  
-
-ggsave('bayesSpaceIsletId_unnorm.pdf')
-
 ```
-
-this is the accuracy of the actual counts
-
-## Normalized images
-
-```{r norm}
-scObjs<-lapply(unique(colData$Image),function(x) plotDataPerImage(x,norm.counts,'Normalized'))
-
-norm.accuracy <- rbind(data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,5,7,7,0,0,7),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,3,1,1,8,8,1),
-                       numClusters=c(2,2,2,2,2,2,2)),
-                  data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,3,0,1,0,0,0),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,5,8,7,8,8,8),
-                       numClusters=c(3,3,3,3,3,3,3)),
-                  data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,2,3,1,0,0,1),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,6,5,7,8,8,7),
-                       numClusters=c(4,4,4,4,4,4,4)),
-                   data.frame(image=c('0','10','1','2','3','4','7'),
-                       TP=c(1,1,1,1,1,1,1),
-                       FP=c(0,2,0,1,0,0,0),
-                       FN=c(0,0,0,0,0,0,0),
-                       TN=c(8,6,8,7,8,8,8),
-                       numClusters=c(5,5,5,5,5,5,5)))%>%
-  mutate(Specificity=TN/(TN+FP),
-         Sensitivity=TP/(TP+FN))
-
-
-
-ggplot(norm.accuracy,aes(y=Specificity,fill=image,
-                    x=as.factor(numClusters)))+
-  geom_bar(stat='identity',position='dodge')+
-  scale_fill_manual(values=RColorBrewer::brewer.pal(7,'Dark2'))                  
-
-ggsave('bayesSpaceIsletId_norm.pdf')
-```
-
-To some extent they do, but in other cases they do not. We need to check annotations to ensure they are correct. How can we test to see if they are in agreement? 
-
