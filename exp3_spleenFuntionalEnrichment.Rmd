@@ -1,0 +1,110 @@
+---
+title: "Distal vs. Proximal analysis"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(purrr)
+library(devtools)
+#library(MSnSet.utils)
+if(!require(MSnSet.utils))
+  devtools::install_github('PNNL-Comp-Mass-Spec/MSnSet.utils')
+
+library(ggplot2)
+library(ggfortify)
+library(cowplot)
+library(leapR)
+
+source('loadHumanPancData.R')
+```
+
+## Re-calculate differnetial expression
+
+Let's double check to see if we can find proximal vs. distal differential expression
+
+```{r cars}
+m2<- MSnSet(exprs = crosstab, pData = isletMeta)
+m3<- MSnSet(exprs = crosstab2, pData = isletMeta)
+
+res.norm <- limma_contrasts(eset = m2, model.str = "~ 0 + IsletStatus", 
+                       coef.str = "IsletStatus", contrasts = "IsletStatusProximal - IsletStatusDistal", trend = T, robust = T) #plot = T?
+
+res.orig <- limma_contrasts(eset = m3, model.str = "~ 0 + IsletStatus", 
+                       coef.str = "IsletStatus", contrasts = "IsletStatusProximal - IsletStatusDistal", trend = T, robust = T) #plot = T?
+
+
+```
+
+## Do the LeapR and plot
+
+Any pathways of interest? 
+
+```{r pressure, echo=FALSE, message=F, warning=F}
+data('krbpaths')
+##map features to Gene Names
+map<-read.table('uniprotMap.txt',header = TRUE)
+ 
+
+doEnrich<-function(res,prefix=''){
+  islet<-res%>%
+  tidyr::separate(feature,sep='\\|',into=c('sp','id','From'))%>%
+  left_join(map)%>%
+  dplyr::select(logFC,P.Value,adj.P.Val,To)%>%
+  subset(!is.na(logFC))%>%
+  subset(!is.na(To))%>%
+  distinct()
+
+##now remove dupes
+dupes<-islet$To[which(duplicated(islet$To))]
+
+non.dupes<-islet%>%
+  subset(!To%in%dupes)
+
+fixed.dupes<-islet%>%
+    subset(To%in%dupes)%>%
+    group_by(To,.drop=F)%>%
+    summarize(minP=min(P.Value))%>%
+    left_join(islet)%>%
+    subset(minP==P.Value)%>%
+  dplyr::select(-minP)
+
+full.islet<-rbind(non.dupes,fixed.dupes)%>%
+  tibble::column_to_rownames('To')%>%
+  arrange(desc(logFC))
+
+top.logfc<-min(subset(subset(full.islet,adj.P.Val<0.05),logFC>0)$logFC)
+bottom.logfc<-max(subset(subset(full.islet,adj.P.Val<0.05),logFC<0)$logFC)
+
+###
+##create matrix
+order.res<-leapR(datamatrix=full.islet,krbpaths,'enrichment_in_order',primary_columns='logFC',minsize=5)%>%
+  subset(pvalue<0.05)%>%
+  #subset(BH_pvalue<0.2)%>%
+  dplyr::select(ingroup_n,ingroup_mean,BH_pvalue,pvalue,zscore)%>%
+  arrange(pvalue)
+
+p<-plotLeapR(order.res,'REACTOME')
+ggsave(paste0('REACTOME',prefix,'_enrichment.pdf'),p,width=12)
+
+
+
+go.order.res<-leapR(datamatrix=full.islet,gosigs,'enrichment_in_order',primary_columns='logFC',minsize=5)%>%
+  subset(pvalue<0.05)%>%
+#t(BH_pvalue<0.2)%>%
+  dplyr::select(ingroup_n,ingroup_mean,pvalue,BH_pvalue,zscore)%>%
+  arrange(pvalue)
+
+p<-plotLeapR(go.order.res,'GO')
+p
+ggsave(paste0('GO',prefix,'_enrichment.pdf'),p,width=12)
+
+}
+
+doEnrich(res.norm,'normalized')
+doEnrich(res.orig,'unnormalized')
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
