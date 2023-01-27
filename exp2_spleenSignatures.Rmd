@@ -1,5 +1,5 @@
 ---
-title: "Figure 3 Islet Activity"
+title: "Figure 2 Spleen Signatures"
 author: "Sara Gosline"
 date: "`r Sys.Date()`"
 output: html_document
@@ -20,321 +20,364 @@ library(ggplot2)
 library(ggfortify)
 library(cowplot)
 library(leapR)
-source('loadHumanPancData.R')
+
+source('spleenDataFormatting.R')
+#this loads data into SCE for us
 
 ```
 
-## PCA depicts separation with Islet
+## PCA depicts separation by pulp annotation
 
-
+Here we do the PCA plots again to remind us of the original annotation and batch
 
 ```{r pca}
-##l
+library(scMerge)
+library(scater)
+#define function do do PCA on sce object?
+pumap<-#scater::runUMAP(sc.prot)%>%
+  scater::runPCA(sc.prot)
 
-m2<- MSnSet(exprs = crosstab2, pData = isletMeta)
-p4=plot_pca(m2, phenotype = "IsletStatus",z_score=T)+ggtitle("Data by location") #check biplot = T?
+phumap<-scater::runUMAP(sc.phos)%>%
+  scater::runPCA()
 
-p6=plot_pca(m2, phenotype = "IsletNumber",z_score=T)+ggtitle("Data by Image") #check biplot = T?
+fullmap<-scater::runPCA(full.spleen)
+  #scater::runPCA()
 
-#cowplot::plot_grid(p4,p6)
+p3<-plotPCA(pumap,color_by='pulpAnnotation')+ggtitle("Proteomic PCA")
+#p4<-plotPCA(phumap,color_by='pulpAnnotation')+ggtitle("Phosphoproteomic PCA")
+p5<-plotPCA(fullmap,color_by='pulpAnnotation')+ggtitle('Sorted PCA')
+p3
+#p4
 
+p5
 
-m3<- MSnSet(exprs = crosstab, pData = isletMeta)
-p5=plot_pca(m3, phenotype = "IsletStatus",z_score=T)+ggtitle("Centered data by location") #check biplot = T?
+universe<-intersect(rownames(exprs(pumap)),rownames(exprs(fullmap)))
 
-p7=plot_pca(m3, phenotype = "IsletNumber",z_score=T)+ggtitle("Centered data by Image") #check biplot = T?
-
-cowplot::plot_grid(p4,p6,p5,p7)
-
-ggsave('PCAplots.pdf')
-```
-
-## Differential expression between all labeled areas shows strong islet signature 
-
-```{r diffex}
-
-#m1 <- MSnSet(exprs = crosstab, pData = isletMeta)
-#Run limma
-res <- limma_contrasts(eset = m2, model.str = "~ 0 + IsletStatus", 
-                       coef.str = "IsletStatus", contrasts = "IsletStatusProximal - IsletStatusDistal", trend = T, robust = T) #plot = T?
-
-res2 <- limma_contrasts(eset = m2, model.str = "~ 0 + IsletStatus", 
-                       coef.str = "IsletStatus", contrasts = "IsletStatusIslet - IsletStatusProximal", trend = T, robust = T) #plot = T?
+library(scMerge)
+combined <-sce_cbind(list(pumap,fullmap),exprs='logcounts',
+                     colData_names=c('pulpAnnotation','source'))%>%
+  runPCA()
 
 
-res3 <- limma_contrasts(eset = m2, model.str = "~ 0 + IsletStatus", 
-                       coef.str = "IsletStatus", contrasts = "IsletStatusIslet - IsletStatusDistal", trend = T, robust = T) #plot = T?
+p6<-plotPCA(combined,color_by='batch')
+p7<-plotPCA(combined,color_by='pulpAnnotation')
 
-res4 <- limma_contrasts(eset = m2, model.str = "~ 0 + IsletOrNot", 
-                       coef.str = "IsletOrNot", contrasts = "IsletOrNotIslet - IsletOrNotNonIslet", trend = T, robust = T) #plot = T?
+p6
+p7
 
-##TODO: summary table off differential expression with venn diagram
-sigIslet <- res4%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(IsletVsOther=ifelse(sign(logFC)<0,'DownInIslet','UpInIslet'))%>%
-  dplyr::select(feature,IsletVsOther)%>%
-   mutate(upOrDown=1)%>%tidyr::pivot_wider(names_from='IsletVsOther',
-                                          values_from='upOrDown',values_fill=0)
+##now lets do batch correction
+library(batchelor)
+library(scran)
+library(scater)
 
+#batchNorm <- multiBatchNorm(spatial=pumap[universe,],original=fullmap[universe,],assay.type='logcounts')
 
-sigIsletDistal<-res3%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(IsletVsDistal=ifelse(sign(logFC)<0,'UpInDistalVsIslet','UpInIsletVsDistal'))%>%
-  dplyr::select(feature,IsletVsDistal)%>%
-  mutate(upOrDown=1)%>%
-  tidyr::pivot_wider(names_from='IsletVsDistal',
-                                          values_from='upOrDown',values_fill=0)
+#get gene variance
+##can't get this to work right now
+##TODO: debug
+#dec1 <- modelGeneVar(batchNorm[[1]])
+#dec2 <- modelGeneVar(batchNorm[[2]])
+#combined.dec <- combineVar(dec1, dec2)
+#chosen.hvgs <- getTopHVGs(combined.dec, n=1000)
 
+#combined <- correctExperiments(spatial=batchNorm[[1]], original=batchNorm[[2]],assay.type='logcounts', 
+#                               PARAM=NoCorrectParam())%>%
+#  runPCA()
+#  runTSNE(dimred='PCA')
 
-sigIsletProximal<-res2%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(IsletVsProximal=ifelse(sign(logFC)<0,'UpInProximalVsIslet','UpInIsletVsProximal'))%>%
-  dplyr::select(feature,IsletVsProximal)%>%
-  mutate(upOrDown=1)%>%tidyr::pivot_wider(names_from='IsletVsProximal',
-                                          values_from='upOrDown',values_fill=0)
-
-sigProxDistal<-res%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(ProximalVsDistal=ifelse(sign(logFC)<0,'UpInDistalVsProximal','UpInProximalVsDistal'))%>%
-  dplyr::select(feature,ProximalVsDistal)%>%
-  mutate(upOrDown=1)%>%tidyr::pivot_wider(names_from='ProximalVsDistal',
-                                          values_from='upOrDown',values_fill=0)
-
-
-#baseline = res3%>%dplyr::select(feature)%>%mutate(base=0)
-
-comb.res<-sigIslet%>%
-  full_join(sigIsletDistal)%>%
-  full_join(sigIsletProximal)%>%
-  full_join(sigProxDistal)
-
-all.cols<-setdiff(colnames(comb.res),'feature')
-navals<-rep(0,length(all.cols))
-names(navals)<-all.cols
-
- comb.res<-tidyr::replace_na(comb.res,as.list(navals))
- 
- library(UpSetR)
- pdf('diffExOverlapUnnormalized.pdf',onefile=F,height=4)
- upset(as.data.frame(comb.res),sets=all.cols)
- dev.off()
-
+#COMBat might work? https://rdrr.io/github/compbiomed/singleCellTK/man/runComBatSeq.html
+# bc <- runComBatSeq(combined,'logcounts','source',covariates='pulpAnnotation',assay='combatCorrected')
 
 ```
+Batch correction doesn't work! Need to update algorithm to enable different assuptions of log ratio data.Can we just use combat?
+
+
+## Differential expression
+We can use the single cell toolkit to do differential expression on each set of proteins. 
+
+```{r bc}
+
+library(limma)
+
+doDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
+  
+  #collect samples by factor
+  samp1<-which(colData(sce)[[column]]==vals[1])
+  samp2<-which(colData(sce)[[column]]==vals[2])
+  
+  fac <- factor(rep(c(2,1),c(length(samp2), length(samp1))))
+  #print(fac)
+  design <- model.matrix(~fac)
+  #print(design)
+  fit <- lmFit(exprs(sce)[,c(samp2,samp1)], design)
+  fit <- eBayes(fit)
+
+   # print(topTable(fit, coef=2))
+  res <- topTable(fit, coef=2, number=Inf, sort.by="P")
+  res <- data.frame(featureID=rownames(res), res, stringsAsFactors = F)
+  return(res)
+}
+
+##get fit values for diffex
+pu<-doDiffEx(pumap)
+full<-doDiffEx(fullmap)
+
+sig.pu<-subset(pu,adj.P.Val<0.01)#%>%subset(abs(logFC)>.5)
+sig.full<-subset(full,adj.P.Val<0.01)#%>%subset(abs(logFC)>.5)
+
+
+##let's plot the overlap of the significant genes
+library(ggVennDiagram)
+vg<-ggVennDiagram(list(Spatial=sig.pu$featureID,Original=sig.full$featureID))+ggtitle('Differentially expressed genes between red and white pulp')
+
+vg
+ggsave('diffEx0.01VennDiag.png',vg)
+##et test values
+#putest<-decideTests(pu,p.value=0.01)%>%as.data.frame()%>%dplyr::rename(Spatial='fac2')
+#fulltest<-decideTests(full,p.value=0.01)%>%as.data.frame()%>%dplyr::rename(Original='fac2')
+#overlap<-intersect(rownames(putest),rownames(fulltest))
+
+#cbind(putest[overlap,],fulltest[overlap,])%>%
+#  dplyr::select('Spatial','Original')%>%
+#  vennCounts()%>%ggVennDiagram()
+
+
+##and the correlation of fold changes
+
+comb<-full%>%dplyr::select(featureID,Original='logFC',Orig.Sig='adj.P.Val')%>%
+  inner_join(dplyr::select(pu,c(featureID,Spatial='logFC',Spatial.Sig='adj.P.Val')))%>%
+  mutate(SigInSpatial=Spatial.Sig<0.01,SigInOrig=Orig.Sig<0.01)
+
+dp<-ggplot(comb)+geom_point(aes(x=Original,y=Spatial,col=SigInSpatial))+
+  ggtitle("Log fold change between red and white pulp")
+dp
+ggsave("RedWhitePulpExpression.png",dp)
+
+```
+Overlap between spatial data and original data is good! Let's look at differential expression signature from original data.Used a more stringent p-value of 0.01 because there are so few proteins, and already half of them are differentially expressed.  
+
+## Get functional enrichment of gene signatures
+
+```{r func enrichment}
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+map<-as.list(org.Hs.egSYMBOL2EG)
+
+revmap<-as.list(org.Hs.egSYMBOL)
+
+comb$gene<-lapply(comb$featureID,function(x) return(map[[x]][1]))
+
+
+go.enrich<-enrichGO(gene=comb$gene[comb$SigInOrig],
+                   OrgDb=org.Hs.eg.db,ont='BP',
+                  qvalueCutoff=0.05,
+                   universe=comb$gene)
+
+kegg.enrich<-enrichKEGG(gene=comb$gene[comb$SigInOrig],
+                  qvalueCutoff=0.05,
+                   universe=comb$gene)
+
+
+
+#rownames(lfc)<-sig.full[rownames(lfc),'gene']
+lfc<-comb$Original
+names(lfc)<-comb$gene 
+
+gsea.enrich<-gseGO(geneList=sort(lfc,decreasing=T),
+                   OrgDb=org.Hs.eg.db,ont='BP')
+
+goplot(gsea.enrich,color='NES')+ggtitle('Enrichment in original data')
+
+lfc<-comb$Spatial
+names(lfc)<-comb$gene
+
+spat.enrich<-gseGO(geneList=sort(lfc,decreasing=T),
+                   OrgDb=org.Hs.eg.db,ont='BP')
+
+goplot(spat.enrich,color='NES')+ggtitle('Enrichment in spatial data')
+
+```
+
+IN the global data we can see enrichment in translation in the red pulp, and depletion of the metabolism/homeostasis. But the signal is week.
+
+## Get loadings for first two components
+
+We can now get the loadings for the first two principal components to determine the signal that is there aside from the RNA translation signal. 
+
+
+```{r pca loadings, warning=FALSE, echo=FALSE, message=FALSE}
+library(leapR)
+pp<-prcomp(exprs(pumap),.center=TRUE)
+pph<-prcomp(exprs(phumap),.center=TRUE)
+
+
+#data("krbpaths")
+
+pc1<-pp$x[,'PC1']
+pc2<-pp$x[,'PC2']
+
+
+names(pc1)<-lapply(names(pc1),function(x) return(map[[x]][1]))
+names(pc2)<-lapply(names(pc2),function(x) return(map[[x]][1]))
+
+gsea.enrich.pc1<-gseGO(geneList=sort(pc1,decreasing=T),
+                   OrgDb=org.Hs.eg.db,ont='BP')
+
+p<-goplot(gsea.enrich.pc1,color='NES')+ggtitle("First principal component")
+
+p
+ggsave('goTermsPC1.png',p)
+
+gsea.enrich.pc2<-gseGO(geneList=sort(pc2,decreasing=T),
+                   OrgDb=org.Hs.eg.db,ont='BP')
+
+p<-goplot(gsea.enrich.pc2,color='NES')+ggtitle('Second principal component')
+
+ggsave('goTermsPC2.png',p)
+
+top.tab<-summary(gsea.enrich.pc2)%>%
+  subset(p.adjust<0.001)%>%
+  dplyr::select('Description','enrichmentScore','NES','pvalue','p.adjust','rank','qvalue')
+
+top.tab
+
+
+```
+
+
+The second principal component shows a clear metal ion/metabolism signature distinct from the RNA processing signature. 
+
 
 Now do the differential expression with the normalized data
 
-```{r diffex norm}
 
-#m1 <- MSnSet(exprs = crosstab, pData = isletMeta)
-#Run limma
-nres <- limma_contrasts(eset = m3, model.str = "~ 0 + IsletStatus", 
-                       coef.str = "IsletStatus", contrasts = "IsletStatusProximal - IsletStatusDistal", trend = T, robust = T) #plot = T?
+## Plot pathway activity in image
 
-nres2 <- limma_contrasts(eset = m3, model.str = "~ 0 + IsletStatus", 
-                       coef.str = "IsletStatus", contrasts = "IsletStatusIslet - IsletStatusProximal", trend = T, robust = T) #plot = T?
+Now we can try to plot the pathway activity in an image by averaging the expression of the proteins selected in the pathway of intest.
 
+```{r pathway plot, message=F, warning=F}
 
-nres3 <- limma_contrasts(eset = m3, model.str = "~ 0 + IsletStatus", 
-                       coef.str = "IsletStatus", contrasts = "IsletStatusIslet - IsletStatusDistal", trend = T, robust = T) #plot = T?
+fillcolors<-list(red='darkred',white='lightgrey',green='darkgreen',`NA`='white')
 
-nres4 <- limma_contrasts(eset = m3, model.str = "~ 0 + IsletOrNot", 
-                       coef.str = "IsletOrNot", contrasts = "IsletOrNotIslet - IsletOrNotNonIslet", trend = T, robust = T) #plot = T?
+p<-ggplot(as.data.frame(colData(pumap)),aes(x=Xcoord,y=Ycoord,fill=pulpAnnotation))+geom_raster()+scale_fill_manual(values=fillcolors)
 
-##TODO: summary table off differential expression with venn diagram
-sigIslet <- nres4%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(IsletVsOther=ifelse(sign(logFC)<0,'DownInIslet','UpInIslet'))%>%
-  dplyr::select(feature,IsletVsOther)%>%
-   mutate(upOrDown=1)%>%tidyr::pivot_wider(names_from='IsletVsOther',
-                                          values_from='upOrDown',values_fill=0)
-
-sigIsletDistal<-nres3%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(IsletVsDistal=ifelse(sign(logFC)<0,'UpInDistalVsIslet','UpInIsletVsDistal'))%>%
-  dplyr::select(feature,IsletVsDistal)%>%
-  mutate(upOrDown=1)%>%
-  tidyr::pivot_wider(names_from='IsletVsDistal',
-                                          values_from='upOrDown',values_fill=0)
-
-sigIsletProximal<-nres2%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(IsletVsProximal=ifelse(sign(logFC)<0,'UpInProximalVsIslet','UpInIsletVsProximal'))%>%
-  dplyr::select(feature,IsletVsProximal)%>%
-  mutate(upOrDown=1)%>%tidyr::pivot_wider(names_from='IsletVsProximal',
-                                          values_from='upOrDown',values_fill=0)
-
-sigProxDistal<-nres%>%
-  tibble()%>%
-  subset(adj.P.Val<0.05)%>%
-  mutate(ProximalVsDistal=ifelse(sign(logFC)<0,'UpInDistalVsProximal','UpInProximalVsDistal'))%>%
-  dplyr::select(feature,ProximalVsDistal)%>%
-  mutate(upOrDown=1)%>%tidyr::pivot_wider(names_from='ProximalVsDistal',
-                                          values_from='upOrDown',values_fill=0)
-
-
-comb.res<-sigIslet%>%
-  full_join(sigIsletDistal)%>%
-  full_join(sigIsletProximal)%>%
-  full_join(sigProxDistal)
-
-all.cols<-setdiff(colnames(comb.res),'feature')
-navals<-rep(0,length(all.cols))
-names(navals)<-all.cols
-
- comb.res<-tidyr::replace_na(comb.res,as.list(navals))
- 
- library(UpSetR)
- pdf('diffExOverlapNormalized.pdf',onefile=F,height=4)
- upset(as.data.frame(comb.res),sets=all.cols)
- dev.off()
-
-
-```
-
-## GSEA and GO enrichment show distinct activity
-
-You can also embed plots, for example:
-
-```{r leapR enrichment, message=F, warning=F}
-
-
-library(leapR)
-
-#data("ncipid")
-data('krbpaths')
-##map features to Gene Names
-map<-read.table('uniprotMap.txt',header = TRUE)
- 
-islet<-res4%>%
-  tidyr::separate(feature,sep='\\|',into=c('sp','id','From'))%>%
-  left_join(map)%>%
-  dplyr::select(logFC,adj.P.Val,To)%>%
-  subset(!is.na(logFC))%>%
-  subset(!is.na(To))%>%
-  distinct()
-
-##now remove dupes
-dupes<-islet$To[which(duplicated(islet$To))]
-
-non.dupes<-islet%>%
-  subset(!To%in%dupes)
-
-fixed.dupes<-islet%>%
-    subset(To%in%dupes)%>%
-    group_by(To,.drop=F)%>%
-    summarize(minP=min(adj.P.Val))%>%
-    left_join(islet)%>%
-    subset(minP==adj.P.Val)%>%
-  dplyr::select(-minP)
-
-full.islet<-rbind(non.dupes,fixed.dupes)%>%
-  tibble::column_to_rownames('To')%>%
-  arrange(desc(logFC))
-
-top.logfc<-min(subset(subset(full.islet,adj.P.Val<0.05),logFC>0)$logFC)
-bottom.logfc<-max(subset(subset(full.islet,adj.P.Val<0.05),logFC<0)$logFC)
+p
+ggsave('origAnnotations.png',p)
 
 ###
-##create matrix
-go.order.res<-leapR(datamatrix=full.islet,gosigs,'enrichment_in_order',
-                 primary_columns='logFC',
-                 minsize=10)%>%
-  subset(BH_pvalue<0.01)%>%
-  dplyr::select(ingroup_n,ingroup_mean,BH_pvalue,zscore)%>%
-  arrange(BH_pvalue)
+#plotAvgExpression
+#plots a specific pathway list from an enrichment object across a grid determined from row/col values in scobjs
+#
+plotAvgExpression<-function(pathwayName,spatialDat,protNames=c(),y='GO'){
+  library(ggplot2)
+  library(cowplot)
+  ##collect expression amd map to coordinates
+  expr.dat<-exprs(spatialDat)%>%
+    as.matrix()%>%
+    as.data.frame()%>%
+    tibble::rownames_to_column('Gene')%>%
+    tidyr::pivot_longer(-Gene,names_to='sample',values_to='logratio')%>%
+    left_join(tibble::rownames_to_column(as.data.frame(colData(pumap)),'sample'))%>%
+    subset(Gene%in%protNames)
 
-p<-plotLeapR(go.order.res,'GO')
+  path.vals<-expr.dat%>%
+    subset(!is.na(pulpAnnotation))%>%
+    group_by(sample,Xcoord,Ycoord,pulpAnnotation)%>%
+    summarize(meanExpr=median(logratio),.groups='keep')%>%
+    dplyr::select(sample,meanExpr,Xcoord,Ycoord,pulpAnnotation)%>%distinct()
+  
+  path.meds<-path.vals%>%group_by(pulpAnnotation)%>%
+    summarize(meanPath=median(meanExpr))
+  
+  redpath<-path.meds$meanPath[which(path.meds$pulpAnnotation=='red')]
+  
+  whitepath<-path.meds$meanPath[which(path.meds$pulpAnnotation=='white')]
+  
+  if(redpath>whitepath)
+    gradfun<-scale_fill_gradient2(low='darkgreen',mid='lightgrey',high='darkred',midpoint=whitepath)
+  else
+    gradfun<-scale_fill_gradient2(low='darkgreen',mid='darkred',high='lightgrey',midpoint=redpath)
 
-p
-ggsave('gseaResultsIsletGO_unnorm.pdf',width=10)
+  p<-ggplot(path.vals,aes(x=Xcoord,y=Ycoord,fill=meanExpr))+geom_raster()+gradfun+theme_bw()+
+    ggtitle(paste0("mean logratio of ",length(protNames),' ',pathwayName,' proteins'))
+  
+  p2<-ggplot(path.vals,aes(x=pulpAnnotation,y=meanExpr,fill=pulpAnnotation))+geom_boxplot()+scale_fill_manual(values=fillcolors)+
+    theme_bw()
+  
+  res<-cowplot::plot_grid(p,p2,rel_widths=c(1.8,1)) 
+  ggsave(paste0(gsub(' ','_',pathwayName),'_',y,'_imagePlots.png'),width=12,res)
+  res
+}
 
-reac.order.res<-leapR(datamatrix=full.islet,krbpaths,'enrichment_in_order',
-                 primary_columns='logFC',
-                 minsize=10)%>%
-  subset(BH_pvalue<0.01)%>%
-  dplyr::select(ingroup_n,ingroup_mean,BH_pvalue,zscore)%>%
-  arrange(BH_pvalue)
 
-p<-plotLeapR(reac.order.res,'REACTOME')
+plotPathway<-function(eobj,pathwayName,revmap,spatialDat,y='GO'){
+  
+  po<-subset(summary(eobj),Description==pathwayName)
+  genes<-po$core_enrichment
+  genelist<-stringr::str_split(genes,pattern='/')%>%unlist()
+  
+  genenames<-lapply(genelist,function(x) revmap[[x]][1])%>%unlist()
+  
+  plotAvgExpression(pathwayName,spatialDat,genenames,y)  
+    
+}
 
-p
-ggsave('gseaResultsIsletreactome_uunnorm.pdf',width=10)
+###let's pick the most interesting pathways...
+allplots<-lapply(top.tab$Description,function (x) plotPathway(gsea.enrich.pc2,x,revmap,pumap))
 
+allplots[[1]]
+write.table(top.tab,file='topGoTermsOnPC2.tsv',sep='\t')
+```
+
+
+## KEGG
+Next we should do the KEGG pathways. 
+
+```{r kegg pathways, warning=FALSE, echo=FALSE, message=FALSE}
+
+
+gsea.enrich.pc1<-gseKEGG(geneList=sort(pc1,decreasing=T))
+
+#goplot(gsea.enrich.pc1,color='NES')+ggtitle("First principal component")
+
+gsea.enrich.pc2<-gseKEGG(geneList=sort(pc2,decreasing=T))
+
+
+top.tab<-summary(gsea.enrich.pc2)%>%
+  subset(p.adjust<0.05)%>%
+  dplyr::select('Description','enrichmentScore','NES','pvalue','p.adjust','rank','qvalue')
+top.tab
+
+###let's pick the most interesting pathways...
+allplots<-lapply(top.tab$Description,function (x) plotPathway(gsea.enrich.pc2,x,revmap,pumap,y='KEGG'))
+allplots[[1]]
+write.table(top.tab,file='topKEGGTermsOnPC2.tsv',sep='\t')
 
 ```
 
-Redo the same analysis for normalized
+## Red pulp vs white pulp signatures
 
-```{r normalized leapR enrichment, message=F, warning=F}
+What if we use the red/white pulp signature? how does that look? Can we use that to understand the activity?
 
+```{r plot pulp, warning=FALSE, echo=FALSE, message=FALSE}
 
-##map features to Gene Names
-map<-read.table('uniprotMap.txt',header = TRUE)
- 
-islet<-nres4%>%
-  tidyr::separate(feature,sep='\\|',into=c('sp','id','From'))%>%
-  left_join(map)%>%
-  dplyr::select(logFC,adj.P.Val,To)%>%
-  subset(!is.na(logFC))%>%
-  subset(!is.na(To))%>%
-  distinct()
+white.only<-subset(sig.pu,logFC>0)
+red.only<-subset(sig.pu,logFC<0)
+plotAvgExpression('Red Signature',pumap,red.only$featureID,y='')
 
-##now remove dupes
-dupes<-islet$To[which(duplicated(islet$To))]
+plotAvgExpression('White Signature',pumap,white.only$featureID,y='')
 
-non.dupes<-islet%>%
-  subset(!To%in%dupes)
+write.table(sig.pu,file='differentiallyExpressedRedvsWhiteprots.tsv',sep='\t')
+```
+## Kinase analysis
 
-fixed.dupes<-islet%>%
-    subset(To%in%dupes)%>%
-    group_by(To,.drop=F)%>%
-    summarize(minP=min(adj.P.Val))%>%
-    left_join(islet)%>%
-    subset(minP==adj.P.Val)%>%
-  dplyr::select(-minP)
+## Network analysis
+lastly we can do the network analysis on the up vs. down signatures to see what else we are missing.
 
-full.islet<-rbind(non.dupes,fixed.dupes)%>%
-  tibble::column_to_rownames('To')%>%
-  arrange(desc(logFC))
-
-top.logfc<-min(subset(subset(full.islet,adj.P.Val<0.05),logFC>0)$logFC)
-bottom.logfc<-max(subset(subset(full.islet,adj.P.Val<0.05),logFC<0)$logFC)
-
-###
-##create matrix
-n.go.order.res<-leapR(datamatrix=full.islet,gosigs,'enrichment_in_order',
-                 primary_columns='logFC',
-                 minsize=10)%>%
-  subset(BH_pvalue<0.01)%>%
-  dplyr::select(ingroup_n,ingroup_mean,BH_pvalue,zscore)%>%
-  arrange(BH_pvalue)
-
-p<-plotLeapR(n.go.order.res,'GO')
-
-p
-
-ggsave('gseaResultsIsletGO_norm.pdf',width=10)
-
-n.reac.order.res<-leapR(datamatrix=full.islet,krbpaths,'enrichment_in_order',
-                 primary_columns='logFC',
-                 minsize=10)%>%
-  subset(BH_pvalue<0.01)%>%
-  dplyr::select(ingroup_n,ingroup_mean,BH_pvalue,zscore)%>%
-  arrange(BH_pvalue)
-
-p<-plotLeapR(n.reac.order.res,)
-
-p
-ggsave('gseaResultsIsletreactome_norm.pdf',width=10)
-
+```{r network}
 
 ```
+
 
