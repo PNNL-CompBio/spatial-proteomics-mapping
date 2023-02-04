@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(ggfortify)
 library(cowplot)
-library(leapR)
+#library(leapR)
 library(dplyr)
 
 
@@ -214,4 +214,25 @@ res
 ggsave('assignedVals.png',res,width=12)
 ```
 
+
+## Networks of signatures
+
+Let's try to build biological networks using the signatures.
+
+```{r build networks,echo=F, warning=F}
+library(PCSF)
+data("STRING")
+ppi<-construct_interactome(STRING)
+redweights<-abs(redsig$logFC)
+names(redweights)<-redsig$featureID
+
+red.net<-PCSF::PCSF_rand(ppi,redweights,n=500)
+
+whiteweights<-abs(whitesig$logFC)
+names(whiteweights)<-whitesig$featureID
+
+white.net<-PCSF::PCSF_rand(ppi,whiteweights,n=500)
+
+
+```
 
