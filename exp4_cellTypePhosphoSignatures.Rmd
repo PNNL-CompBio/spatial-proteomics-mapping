@@ -1,8 +1,8 @@
 ---
-title: "exp3_pulpDeconvolution"
+title: "exp4_pulpPhosphoDeconvolution"
 output: html_document
 author: Sara Gosline
-date: "2023-01-27"
+date: "2023-02-15"
 ---
 
 ```{r setup, include=FALSE}
@@ -56,12 +56,12 @@ pumap<-scater::runPCA(spat.prot)
 phumap<-spat.phos%>%
   scater::runPCA()
 
-fullmap<-scater::runPCA(global.sorted)
+fullmap<-scater::runPCA(phospho.sorted)
 
 full<-doDiffEx(fullmap)
 
-upsig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC>1)
-downsig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC<(-1))
+upsig<-full%>%subset(adj.P.Val<0.05)%>%subset(logFC>.25)
+downsig<-full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))
 
 print(paste0('we now have a white pulp signature of ',nrow(upsig)))
 print(paste0('we now have a red pulp signature of ',nrow(downsig)))
@@ -76,16 +76,16 @@ Let's now plot the signatures in heatmaps of the original and spatial data.
 library(pheatmap)
 
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
+pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature', filename = 'whitePulpSorted.png')
 
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(upsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+pheatmap(as.matrix(exprs(phumap)[intersect(rownames(upsig),rownames(rowData(phumap))),]),annotation_col = as.data.frame(colData(phumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature',filename='whitePulpSpatial.png')
 
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature',filename='redPulpSorted.png')
 
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(downsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
+pheatmap(as.matrix(exprs(phumap)[intersect(rownames(downsig),rownames(rowData(phumap))),]),annotation_col = as.data.frame(colData(phumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature',filename='redPulpSpatial.png')
 
 
 ```
@@ -95,29 +95,29 @@ These signatures cluster voxels, but don't serve as great markers because tehy a
 ```{r reduced signature}
 
 
-whitesig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC>1)%>%subset(AveExpr>1)
-redsig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC<(-1))%>%subset(AveExpr>(1))
+whitesig<-upsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC>.25)%>%subset(AveExpr>0)
+redsig<-downsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))%>%subset(AveExpr>(0))
 
-print(paste0('we now have a white pulp signature of ',nrow(whitesig)))
-print(paste0('we now have a red pulp signature of ',nrow(redsig)))
+#print(paste0('we now have a white pulp signature of ',nrow(whitesig)))
+#print(paste0('we now have a red pulp signature of ',nrow(redsig)))
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(whitesig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
-
-
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(whitesig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+#pheatmap(as.matrix(exprs(fullmap)[rownames(whitesig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
 
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(redsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+#pheatmap(as.matrix(exprs(pumap)[intersect(rownames(whitesig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
 
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(redsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
+#pheatmap(as.matrix(exprs(fullmap)[rownames(redsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+
+
+#pheatmap(as.matrix(exprs(phumap)[intersect(rownames(redsig),rownames(rowData(phumap))),]),annotation_col = as.data.frame(colData(phumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
 
 ```
 
 So we have a handful of proteins that are marking the signature. Let's see if we can link them in a biological fashion.
 
 ```{r pathway enrichment}
-library(clusterProfiler)
+#library(clusterProfiler)
 library(org.Hs.eg.db)
 map<-as.list(org.Hs.egSYMBOL2EG)
 
@@ -126,18 +126,19 @@ whitegenes<-lapply(rownames(whitesig),function(x) return(map[[x]][1]))
 
 universe<-unlist(lapply(rownames(full),function(x) return(map[[x]][1])))
 
-red.enrich<-enrichGO(gene=redgenes,
-                   OrgDb=org.Hs.eg.db,ont='BP',
-                  qvalueCutoff=0.05,
-                   universe=universe)
 
-white.enrich<-enrichGO(gene=whitegenes,
-                   OrgDb=org.Hs.eg.db,ont='BP',
-                  qvalueCutoff=0.05,
-                   universe=universe)
+#red.enrich<-enrichGO(gene=redgenes,
+#                   OrgDb=org.Hs.eg.db,ont='BP',
+#                  qvalueCutoff=0.05,
+#                   universe=universe)
 
-goplot(red.enrich)
-goplot(white.enrich)
+#white.enrich<-enrichGO(gene=whitegenes,
+#                   OrgDb=org.Hs.eg.db,ont='BP',
+#                  qvalueCutoff=0.05,
+#                   universe=universe)
+
+#goplot(red.enrich)
+#goplot(white.enrich)
 ```
 
 This looks more promising. We can now annotate each sample by the mean expression of the signature proteins, see if that works?
@@ -149,6 +150,7 @@ calcSigScore<-function(sce, sigProts,sigName){
   allranks<-apply(exprs(sce),2,function(x) rev(rank(x)))
   
   allpercs<-apply(exprs(sce),2,function(x) rev(percent_rank(x)))
+  rownames(allpercs)<-rownames(exprs(sce))
   siggenes<-allpercs[intersect(rownames(allpercs),sigProts),]
   sigScore=apply(siggenes,2,mean,na.rm=TRUE)
   
@@ -156,16 +158,16 @@ calcSigScore<-function(sce, sigProts,sigName){
   sce
 }
 
-pumap<-calcSigScore(pumap,rownames(redsig),'RedPulp')%>%
+phumap<-calcSigScore(phumap,rownames(redsig),'RedPulp')%>%
   calcSigScore(rownames(whitesig),'WhitePulp')
   
-p1<-plotPCA(pumap,color_by='WhitePulp')
+p1<-plotPCA(phumap,color_by='WhitePulp')
 
-p2<-plotPCA(pumap,color_by='RedPulp')
+p2<-plotPCA(phumap,color_by='RedPulp')
 
 p3<-cowplot::plot_grid(p2,p1)
 p3
-ggsave('pcaLabeledByScore.png',p3,width=12)
+ggsave('phos_pcaLabeledByScore.png',p3,width=12)
 
 ```
 
@@ -179,19 +181,19 @@ Lastly we want to plot a set of scores, in this case the signature scores, in an
 
 ```{r plot image}
 
- p<-ggplot(as.data.frame(colData(pumap)),aes(x=Xcoord,y=Ycoord,fill=RedPulp))+
+ p<-ggplot(as.data.frame(colData(phumap)),aes(x=Xcoord,y=Ycoord,fill=RedPulp))+
   geom_raster()+scale_fill_viridis_c()+
   theme_bw()+
   ggtitle(paste0('Red pulp signature'))
   
- p1<-ggplot(as.data.frame(colData(pumap)),aes(x=Xcoord,y=Ycoord,fill=WhitePulp))+
+ p1<-ggplot(as.data.frame(colData(phumap)),aes(x=Xcoord,y=Ycoord,fill=WhitePulp))+
   geom_raster()+theme_bw()+scale_fill_viridis_c()+
     ggtitle(paste0("White pulp signature"))
     
 
  pc<-cowplot::plot_grid(p,p1)
  pc
- ggsave('scoredImage.png',pc,width=12)
+ ggsave('phosscoredImage.png',pc,width=12)
 ```
 
 Now that we have a rank score, we can "call" each voxel. 
@@ -199,11 +201,11 @@ Now that we have a rank score, we can "call" each voxel.
 
 ```{r voxel scoring}
 
-cols<-list(red='darkred',white='white',None='darkgrey')
-newDat<-colData(pumap)%>%
+cols<-list(red='darkred',white='white',None='darkgrey',Both='darkorange')
+newDat<-colData(phumap)%>%
   as.data.frame()%>%
   mutate(isRed=RedPulp>0.5,isWhite=WhitePulp>0.5)%>%
-  mutate(pulp=ifelse(isRed,'red',ifelse(isWhite,'white','None')))
+  mutate(pulp=ifelse(isRed,ifelse(isWhite,'Both','red'),ifelse(isWhite,'white','None')))
 
 p1<-ggplot(newDat)+geom_point(aes(x=RedPulp,y=WhitePulp,col=pulp))+scale_color_manual(values=cols)
 
@@ -211,28 +213,8 @@ p2<-ggplot(newDat,aes(x=Xcoord,y=Ycoord,fill=pulp))+geom_raster()+scale_fill_man
 
 res<-cowplot::plot_grid(p1,p2)
 res
-ggsave('assignedVals.png',res,width=12)
+ggsave('phosassignedVals.png',res,width=12)
 ```
 
 
-## Networks of signatures
-
-Let's try to build biological networks using the signatures.
-
-```{r build networks,echo=F, warning=F}
-library(PCSF)
-data("STRING")
-ppi<-construct_interactome(STRING)
-redweights<-abs(redsig$logFC)
-names(redweights)<-redsig$featureID
-
-red.net<-PCSF::PCSF_rand(ppi,redweights,n=500)
-
-whiteweights<-abs(whitesig$logFC)
-names(whiteweights)<-whitesig$featureID
-
-white.net<-PCSF::PCSF_rand(ppi,whiteweights,n=500)
-
-
-```
 

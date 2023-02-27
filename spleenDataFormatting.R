@@ -5,13 +5,21 @@ library(readxl)
 library(dplyr)
 library(tidyr)
 library(SingleCellExperiment)
+library(org.Hs.eg.db)
+#source("synapseUtil.R")
+#syn<-loadSynapse()
+
+
+swp.map<-as.data.frame(org.Hs.egUNIPROT)%>%
+  full_join(as.data.frame(org.Hs.egSYMBOL))
 
 global.spleen<-read.table('../../Projects/HubMap/spleen/Vocanol_tip_Global.txt',sep='\t',header=T,comment.char = '')%>%
   dplyr::select(Entry.Name,Gene,starts_with('sample'))%>%
   #subset(Gene!='')%>%##TODO FIX THIS 
   tidyr::pivot_longer(cols=starts_with('sample'),names_to='Sample',values_to='LogRatio')
   
-phospho.spleen<-read.table('../../Projects/HubMap/spleen/Vocanol_tip_phospho.txt',sep='\t',header=T,comment.char = '')
+phospho.spleen<-readxl::read_xlsx('../../Projects/HubMap/spleen/Volcaono_tip_phospho_siteAnnotated.xlsx')
+  #read.table('../../Projects/HubMap/spleen/Vocanol_tip_phospho.txt',sep='\t',header=T,comment.char = '')
 
 spleen.meta<-data.frame(Sample=c('sample.09','sample.10','sample.11','sample.12',
                                  'sample.13','sample.14','sample.15','sample.16'),
@@ -20,7 +28,9 @@ spleen.meta<-data.frame(Sample=c('sample.09','sample.10','sample.11','sample.12'
 
 md.file<-'../../Projects/HubMap/spleen/voxelMetadata.xlsx'
 prot.file<-'../../Projects/HubMap/spleen/AfterBatchCorrection_global.txt'
-phos.file<-'../../Projects/HubMap/spleen/Phospho_70%Validvalues.txt'
+phos.file<-'../../Projects/HubMap/spleen/Phospho_70percValidvalues.txt'
+
+
 loadMetadata<-function(){
   tab<-readxl::read_xlsx(md.file)
   return(tab) 
@@ -83,15 +93,19 @@ rowD <- rowData[rownames(counts),]
 colD <- colData[colnames(counts),]
 
 #create the ojbect for the protein data
-sc.prot <- SingleCellExperiment(assays=list(logcounts=as(counts, "dgCMatrix")),
+spat.prot<- SingleCellExperiment(assays=list(logcounts=as(counts, "dgCMatrix")),
                                 rowData=rowD,
                                 colData=colD)
 
 
 pcounts<-phos%>%
   dplyr::select(`Voxel Number`,Phosphosite,logRatio)%>%
-  tidyr::pivot_wider(values_from=logRatio,names_from='Voxel Number',values_fn=list(logRatio=mean))%>%
+  tidyr::separate(Phosphosite,into=c('uniprot_id','mod'))%>%
+  left_join(swp.map)%>%
+  tidyr::unite(col='Phosphosite',symbol,mod,sep='_')%>%
   subset(!is.na(Phosphosite))%>%
+  dplyr::select(-c(uniprot_id,gene_id))%>%
+  tidyr::pivot_wider(values_from=logRatio,names_from='Voxel Number',values_fn=list(logRatio=mean))%>%
   tibble::column_to_rownames('Phosphosite')%>%
   as.matrix()
 
@@ -102,20 +116,41 @@ pcolD <- colData[colnames(pcounts),]
 
 
 #now create the same object for the phospho data
-sc.phos<- SingleCellExperiment(assays=list(logcounts=as(pcounts, "dgCMatrix")),
+spat.phos<- SingleCellExperiment(assays=list(logcounts=as(pcounts, "dgCMatrix")),
                                rowData=prowD,
                                colData=pcolD)
 
 pcounts<-global.spleen%>%
   dplyr::select(`Sample`,Gene,LogRatio)%>%
   tidyr::pivot_wider(values_from=LogRatio,names_from='Sample',values_fn=list(logRatio=mean))%>%
-  #subset(!is.na(Phosphosite))%>%
+  subset(!is.na(Gene))%>%
   tibble::column_to_rownames('Gene')%>%
   as.matrix()
 
 ##nwo create the same object for global
-full.spleen<-SingleCellExperiment(assays=list(logcounts=as(pcounts,'dgCMatrix')),
+global.sorted<-SingleCellExperiment(assays=list(logcounts=as(pcounts,'dgCMatrix')),
                                 colData=tibble::column_to_rownames(spleen.meta,'Sample'),
                                 rowData=rownames(pcounts))
                                 
                                 
+##lastly let's process the full spleen phospho data
+phcounts<-phospho.spleen%>%
+  dplyr::select(Index,Gene,starts_with('sample'))%>%#first get the columns
+  tidyr::separate(Index,into=c('prot','mod'),sep='_')%>% #separate swissprot
+  tidyr::unite(col='Site',Gene,mod,sep="_")%>%
+  dplyr::select(-prot)%>%
+  tidyr::pivot_longer(cols=starts_with('sample'),names_to='oldsample',values_to='logRatio')
+
+phcounts$sample<-stringr::str_replace(phcounts$oldsample,'-','.')
+  
+phcounts<-phcounts%>%
+  dplyr::select(-oldsample)%>%
+  tidyr::pivot_wider(names_from='sample',values_from='logRatio')%>%
+  tibble::column_to_rownames('Site')%>%
+  as.matrix()
+
+phospho.sorted<-SingleCellExperiment(assays=list(logcounts=as(phcounts,'dgCMatrix')),
+                                  colData=tibble::column_to_rownames(spleen.meta,'Sample'),
+                                  rowData=rownames(phcounts))
+
+

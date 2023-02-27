@@ -11,9 +11,10 @@
 #' @export
 loadSynapse<-function(){
   library(reticulate)
-  have_synapse <- reticulate::py_module_available("synapseclient")
-     if (!have_synapse)
-       reticulate::py_install("synapseclient")
+  reticulate::use_condaenv('/Users/gosl241/miniconda3/envs/synapse/bin/python')
+ # have_synapse <- reticulate::py_module_available("synapseclient")
+#     if (!have_synapse)
+#       reticulate::conda_install('synapse',"synapseclient")
    
    syn_client <<-
      reticulate::import("synapseclient", delay_load = TRUE)$login()

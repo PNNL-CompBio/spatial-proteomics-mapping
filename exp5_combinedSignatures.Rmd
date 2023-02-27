@@ -1,0 +1,43 @@
+---
+title: "exp5_combinedSig"
+output: html_document
+date: "2023-02-27"
+---
+
+The goal of this MD is to evaluate the combination of proteomic and phosphoproteomic measurements to evaluat the spleen data.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("spleenDataFormatting.R")
+```
+
+## Combine Signatures
+First lets combine the signatures to see what we get
+
+
+```{r combined}
+
+
+```
+
+## Networks
+
+
+Let's try to build biological networks using the signatures.
+
+```{r build networks,echo=F, warning=F}
+library(PCSF)
+data("STRING")
+ppi<-construct_interactome(STRING)
+redweights<-abs(redsig$logFC)
+names(redweights)<-redsig$featureID
+
+red.net<-PCSF::PCSF_rand(ppi,redweights,n=500)
+
+whiteweights<-abs(whitesig$logFC)
+names(whiteweights)<-whitesig$featureID
+
+white.net<-PCSF::PCSF_rand(ppi,whiteweights,n=500)
+
+
+```
