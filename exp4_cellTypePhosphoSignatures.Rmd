@@ -16,42 +16,24 @@ library(dplyr)
 
 
 source('spleenDataFormatting.R')
+source('spatialProtUtils.R')
 
 ```
 
 The assignment of pulp type from the basic data was not robust. Here we will use the cell type signatures from the sorted data to label the voxels.
 
 
-## Cell type signatures
+## Voxel assignments from bulk data
 
-Here we get the differential expression from the sorted cells.
 
 ```{r cell type signatures}
+#run diffex for sorted prot
 
-library(limma)
+#score spatial prot
 
-## here we do differential expression again
-doDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
-  
-  #collect samples by factor
-  samp1<-which(colData(sce)[[column]]==vals[1])
-  samp2<-which(colData(sce)[[column]]==vals[2])
-  
-  fac <- factor(rep(c(2,1),c(length(samp2), length(samp1))))
-  #print(fac)
-  design <- model.matrix(~fac)
-  #print(design)
-  fit <- lmFit(exprs(sce)[,c(samp2,samp1)], design)
-  fit <- eBayes(fit)
+#assign signature scores
 
-   # print(topTable(fit, coef=2))
-  res <- topTable(fit, coef=2, number=Inf, sort.by="P")
-  res <- data.frame(featureID=rownames(res), res, stringsAsFactors = F)
-  return(res)
-}
-
-##get fit values for diffex
-pumap<-scater::runPCA(spat.prot)
+#map signatures to spatial data
 
 phumap<-spat.phos%>%
   scater::runPCA()
@@ -90,7 +72,7 @@ pheatmap(as.matrix(exprs(phumap)[intersect(rownames(downsig),rownames(rowData(ph
 
 ```
 
-These signatures cluster voxels, but don't serve as great markers because tehy are still very much 'down' regulated. We want to pick the top expressed proteins that represent each pulp type.
+These signatures cluster voxels, but don't serve as great markers because they are still very much 'down' regulated. We want to pick the top expressed proteins that represent each pulp type.
 
 ```{r reduced signature}
 
@@ -119,6 +101,7 @@ So we have a handful of proteins that are marking the signature. Let's see if we
 ```{r pathway enrichment}
 #library(clusterProfiler)
 library(org.Hs.eg.db)
+library(leapR)
 map<-as.list(org.Hs.egSYMBOL2EG)
 
 redgenes<-lapply(rownames(redsig),function(x) return(map[[x]][1]))
@@ -126,7 +109,12 @@ whitegenes<-lapply(rownames(whitesig),function(x) return(map[[x]][1]))
 
 universe<-unlist(lapply(rownames(full),function(x) return(map[[x]][1])))
 
+data('kinasesubstrates')
 
+subs<-full%>%arrange(logFC)%>%
+  dplyr::mutate('gene')%>%
+  dplyr::select('featureID')
+#red.enrich<-leapR::leapR()
 #red.enrich<-enrichGO(gene=redgenes,
 #                   OrgDb=org.Hs.eg.db,ont='BP',
 #                  qvalueCutoff=0.05,
@@ -181,11 +169,8 @@ Lastly we want to plot a set of scores, in this case the signature scores, in an
 
 ```{r plot image}
 
- p<-ggplot(as.data.frame(colData(phumap)),aes(x=Xcoord,y=Ycoord,fill=RedPulp))+
-  geom_raster()+scale_fill_viridis_c()+
-  theme_bw()+
-  ggtitle(paste0('Red pulp signature'))
-  
+ p<-plotGrid(phumap,'RedPulp')
+
  p1<-ggplot(as.data.frame(colData(phumap)),aes(x=Xcoord,y=Ycoord,fill=WhitePulp))+
   geom_raster()+theme_bw()+scale_fill_viridis_c()+
     ggtitle(paste0("White pulp signature"))
