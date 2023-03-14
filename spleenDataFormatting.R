@@ -80,7 +80,7 @@ colData <- prot%>%
   tibble::column_to_rownames('Voxel Number')%>%
   mutate(source='2D')
 
-rowData <- data.frame(protein=rownames(counts))
+rowData <- data.frame(Protein=rownames(counts))
 rownames(rowData)<-rownames(counts)
 
 #cmat <- as.matrix(countdat[,rownames(i1_spots)])
@@ -89,7 +89,7 @@ nas <- which(apply(counts,1,function(x) all(is.na(x))))
 if(length(nas)>0)
   counts <- counts[-nas,]
 #print(dim(cmat))
-rowD <- rowData[rownames(counts),]
+rowD <- data.frame(Protein=rowData[rownames(counts),])
 colD <- colData[colnames(counts),]
 
 #create the ojbect for the protein data
@@ -119,6 +119,13 @@ pcolD <- colData[colnames(pcounts),]
 spat.phos<- SingleCellExperiment(assays=list(logcounts=as(pcounts, "dgCMatrix")),
                                rowData=prowD,
                                colData=pcolD)
+
+pdat<-rowData(spat.phos)%>%
+  as.data.frame()%>%
+  tidyr::separate(X,into=c('Protein','Psite'),sep='_',remove=FALSE)%>%
+  tidyr::unite(Protein,Psite,col='Phosphosite',sep='-')
+
+rowData(spat.phos)<-pdat
 
 pcounts<-global.spleen%>%
   dplyr::select(`Sample`,Gene,LogRatio)%>%

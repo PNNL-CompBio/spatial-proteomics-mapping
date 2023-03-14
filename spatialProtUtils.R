@@ -144,10 +144,84 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
 #' Builds network using SingleCellExpression object and values
 #' that were applied to the row data
 #' @import PCSF
-buildNetwork<-function(sce,featName,addPhos=FALSE){
-  library(PCSF)
-  strdb<-data('STRING')
+buildNetwork<-function(sce,featName,beta=.5,nrand=100){
+   require(dplyr)
+  
+  ##emtpy weight vectors
+  phos.vals<-c()
+  prot.vals<-c()
+  
+  if('Phosphosite'%in%names(rowData(sce))){
+    phos.vals<-rowData(sce)[,featName]
+    names(phos.vals)<-rowData(sce)[,'Phosphosite']
+    phos.vals<-phos.vals[which(phos.vals>0)]
+  }
+
+  if('Protein'%in%names(rowData(sce))){
+    prot.vals<-rowData(sce)[,featName]
+    names(prot.vals)<-rowData(sce)[,'Protein']
+    prot.vals<-prot.vals[which(prot.vals>0)]
+  }
+  
+  if(!require('PCSF')){
+    remotes::install_github('sgosline/PCSF')
+    require('PCSF')
+  }
+  data("STRING")
+  
+  if(length(phos.vals)>0){
+    #read kinase substrate database stored in data folder
+    KSDB <- read.csv('PSP&NetworKIN_Kinase_Substrate_Dataset_July2016.csv',
+                                  stringsAsFactors = FALSE)
+  
+    kdat<-KSDB%>%group_by(GENE)%>%
+      dplyr::select(SUB_GENE,SUB_MOD_RSD)%>%
+      rowwise()%>%
+      dplyr::mutate(subval=paste(SUB_GENE,SUB_MOD_RSD,sep='-'))
+    
+    allvals<-unique(kdat$subval)
+    
+    mval<-mean(STRING$cost)
+    adf<-apply(kdat,1,function(x)
+      #for each substrate interaction, add a link from the kinase gene -> substreate -> substrate gene
+      data.frame(from=c(x[['GENE']],x[['subval']]),to=c(x[['subval']],x[['SUB_GENE']]),
+                 cost=c(mval*1.5,mval/4)))%>%  ##arbitrary costs based on mean cost of edges around network
+      do.call(rbind,.)
+  }else{
+    adf<-data.frame()
+  } 
   
   ##first get diffex proteins
+  ppi <- construct_interactome(rbind(STRING,adf))
   
+  ##now run the code
+  terms=c(phos.vals,prot.vals)
+  #print(terms)
+  subnet<-NULL
+  try(
+    subnet <- PCSF_rand(ppi,abs(terms), n=nrand, r=0.2,w = 4, b = beta, mu = 0.0005)
+  )
+  
+  if(is.null(subnet))
+    return("")
+  
+  lfcs<-terms[match(names(V(subnet)),names(terms))]
+  lfcs[is.na(lfcs)]<-0.0
+  
+  ##assign proteins first
+  types<-rep('proteins',length(names(V(subnet))))
+  
+  names(types)<-names(V(subnet))
+  
+  ##then assign phosphosites
+  types[intersect(names(V(subnet)),allvals)]<-'phosphosite'
+  
+ 
+  subnet<-igraph::set.vertex.attribute(subnet,'logFoldChange',value=lfcs)
+  subnet<-igraph::set.vertex.attribute(subnet,'nodeType',value=types)
+  subnet<-igraph::set.edge.attribute(subnet,'interactionType',value='protein-protein interaction')
+  
+  
+  write_graph(subnet,format='gml',file=paste0(featName,'network.gml'))
+  return(list(graph=subnet,fname=paste0(featName,'.networkgml')))
 }
