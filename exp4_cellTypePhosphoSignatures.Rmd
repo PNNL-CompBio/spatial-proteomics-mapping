@@ -28,57 +28,106 @@ The assignment of pulp type from the basic data was not robust. Here we will use
 
 ```{r cell type signatures}
 #run diffex for sorted prot
+fullmap<-scater::runPCA(global.sorted)
+
+full<-spatialDiffEx(fullmap,'pulpAnnotation')%>%
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(logFC='pulpAnnotation.limma.logFC',adj.P.Val='pulpAnnotation.limma.adj.P.Val',
+                AveExpr='pulpAnnotation.limma.AveExpr')
+
+pumap<-scater::runPCA(spat.prot)
+
+
+
+whitesig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC>1)%>%
+  subset(AveExpr>1)
+
+redsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC<(-1))%>%
+  subset(AveExpr>(1))
 
 #score spatial prot
+pumap<-calcSigScore(pumap,rownames(redsig),'RedPulp')%>%
+  calcSigScore(rownames(whitesig),'WhitePulp')
 
 #assign signature scores
+newDat<-colData(pumap)%>%
+  as.data.frame()%>%
+  mutate(isRed=RedPulp>0.5,isWhite=WhitePulp>0.5)%>%
+  mutate(pulp=ifelse(isRed,'red',ifelse(isWhite,'white','None')))
+
 
 #map signatures to spatial data
-
-phumap<-spat.phos%>%
-  scater::runPCA()
-
-fullmap<-scater::runPCA(phospho.sorted)
-
-full<-doDiffEx(fullmap)
-
-upsig<-full%>%subset(adj.P.Val<0.05)%>%subset(logFC>.25)
-downsig<-full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))
-
-print(paste0('we now have a white pulp signature of ',nrow(upsig)))
-print(paste0('we now have a red pulp signature of ',nrow(downsig)))
-
+spat.phos<-scater::runPCA(spat.phos)
+colData(spat.phos)<-DataFrame(newDat)
+p<-plotPCA(spat.phos,colour_by='pulp')
+p
+ggsave("phosphoPCAlabeled.png",p)
 ```
 
-## Plot values in heatmap
-Let's now plot the signatures in heatmaps of the original and spatial data.
+## Differential expression
+
+Now we can use the functions we defined to do differential expression on the phosphosites, as well as ordered enrichment.
+
+```{r diffex, echo=FALSE}
+
+spat.phos<-spatialDiffEx(spat.phos,column='pulp',vals=c('red','white'))
+
+res<- spat.phos%>%
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='pulp.limma.logFC',
+                adj.P.Val='pulp.limma.adj.P.Val',
+                AveExpr='pulp.limma.AveExpr')
 
 
-```{r pressure, echo=FALSE}
-library(pheatmap)
+print(head(res))
+num.diff<-nrow(subset(res,adj.P.Val<0.01))
 
+p<-res%>%
+  mutate(signif=adj.P.Val<0.01)%>%
+  mutate(logPval=log10(adj.P.Val)*-1)%>%
+  ggplot(aes(x=logFC,y=logPval,col=signif))+geom_point()+
+  ggtitle(paste0(num.diff,' differentially expressed phosphosites'))
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature', filename = 'whitePulpSorted.png')
+p
 
-
-pheatmap(as.matrix(exprs(phumap)[intersect(rownames(upsig),rownames(rowData(phumap))),]),annotation_col = as.data.frame(colData(phumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature',filename='whitePulpSpatial.png')
-
-
-pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature',filename='redPulpSorted.png')
-
-
-pheatmap(as.matrix(exprs(phumap)[intersect(rownames(downsig),rownames(rowData(phumap))),]),annotation_col = as.data.frame(colData(phumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature',filename='redPulpSpatial.png')
-
-
+ggsave('diffExPsites.png',p)
+         
 ```
 
 These signatures cluster voxels, but don't serve as great markers because they are still very much 'down' regulated. We want to pick the top expressed proteins that represent each pulp type.
 
 ```{r reduced signature}
 
+library(leapR)
+data('kinasesubstrates')
 
-whitesig<-upsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC>.25)%>%subset(AveExpr>0)
-redsig<-downsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))%>%subset(AveExpr>(0))
+ksite<-res%>%
+  tidyr::separate(featureID,into=c('gene','site'))%>%
+  tidyr::unite(c(gene,site),col='psite',sep='-')%>%
+  arrange(logFC)
+                    
+kres<-leapR::leapR(kinasesubstrates,enrichment_method='enrichment_in_order',
+                   ksite,id_column='psite',primary_columns='logFC')
+
+sig.kin<-subset(kres,BH_pvalue<0.05)%>%
+  tibble::rownames_to_column('Kinase')
+
+p1<-ggplot(sig.kin,aes(x=zscore,y=Kinase))+geom_bar(stat='identity')
+
+p2<-ggplot(sig.kin,aes(x=log10(BH_pvalue)*-1,y=Kinase))+geom_bar(stat='identity')
+
+p3<-cowplot::plot_grid(p1,p2)
+p3
+ggsave('Kinaseenrichment.png',p3)
+#whitesig<-upsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC>.25)%>%subset(AveExpr>0)
+#redsig<-downsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))%>%subset(AveExpr>(0))
 
 #print(paste0('we now have a white pulp signature of ',nrow(whitesig)))
 #print(paste0('we now have a red pulp signature of ',nrow(redsig)))
@@ -98,65 +147,29 @@ redsig<-downsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))%>%subset(Av
 
 So we have a handful of proteins that are marking the signature. Let's see if we can link them in a biological fashion.
 
-```{r pathway enrichment}
+```{r significant kniase substrate plotting}
 #library(clusterProfiler)
-library(org.Hs.eg.db)
-library(leapR)
-map<-as.list(org.Hs.egSYMBOL2EG)
+library(pheatmap)
 
-redgenes<-lapply(rownames(redsig),function(x) return(map[[x]][1]))
-whitegenes<-lapply(rownames(whitesig),function(x) return(map[[x]][1]))
+substr<-sig.kin%>%
+  dplyr::select(Kinase,ingroupnames)%>%
+  tidyr::separate(ingroupnames,into=c('s1','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','s12'),sep=', ')%>%
+  pivot_longer(cols=starts_with('s'),names_to='sval',values_to='substrate')%>%
+  subset(!is.na(substrate))%>%
+  tidyr::separate(substrate,into=c('gene','mod'))%>%
+  tidyr::unite(gene,mod,col='substrate',sep='_')
 
-universe<-unlist(lapply(rownames(full),function(x) return(map[[x]][1])))
+pheatmap(exprs(spat.phos)[unique(substr$substrate),],
+         annotation_col = as.data.frame(colData(spat.phos)[,c('RedPulp','WhitePulp')]),
+         clustering_distance_cols = 'correlation',
+         clustering_distance_rows = 'correlation')
 
-data('kinasesubstrates')
 
-subs<-full%>%arrange(logFC)%>%
-  dplyr::mutate('gene')%>%
-  dplyr::select('featureID')
-#red.enrich<-leapR::leapR()
-#red.enrich<-enrichGO(gene=redgenes,
-#                   OrgDb=org.Hs.eg.db,ont='BP',
-#                  qvalueCutoff=0.05,
-#                   universe=universe)
-
-#white.enrich<-enrichGO(gene=whitegenes,
-#                   OrgDb=org.Hs.eg.db,ont='BP',
-#                  qvalueCutoff=0.05,
-#                   universe=universe)
-
-#goplot(red.enrich)
-#goplot(white.enrich)
-```
-
-This looks more promising. We can now annotate each sample by the mean expression of the signature proteins, see if that works?
-
-```{r calculate signature scores}
-
-calcSigScore<-function(sce, sigProts,sigName){
-  
-  allranks<-apply(exprs(sce),2,function(x) rev(rank(x)))
-  
-  allpercs<-apply(exprs(sce),2,function(x) rev(percent_rank(x)))
-  rownames(allpercs)<-rownames(exprs(sce))
-  siggenes<-allpercs[intersect(rownames(allpercs),sigProts),]
-  sigScore=apply(siggenes,2,mean,na.rm=TRUE)
-  
-  colData(sce)[[sigName]]<-sigScore
-  sce
-}
-
-phumap<-calcSigScore(phumap,rownames(redsig),'RedPulp')%>%
-  calcSigScore(rownames(whitesig),'WhitePulp')
-  
-p1<-plotPCA(phumap,color_by='WhitePulp')
-
-p2<-plotPCA(phumap,color_by='RedPulp')
-
-p3<-cowplot::plot_grid(p2,p1)
-p3
-ggsave('phos_pcaLabeledByScore.png',p3,width=12)
-
+pheatmap(exprs(spat.phos)[unique(substr$substrate),],
+         annotation_col = as.data.frame(colData(spat.phos)[,c('RedPulp','WhitePulp')]),
+         clustering_distance_cols = 'correlation',
+         clustering_distance_rows = 'correlation',
+         filename = 'diffExPhosphoHeatmap.pdf')
 ```
 
 This isn't quite right - the 'green' items are definitely on the right, but we need some sort of threshold to 'call' the white vs. red pulp items.
@@ -164,42 +177,102 @@ This isn't quite right - the 'green' items are definitely on the right, but we n
 
 ### Plot in image
 
-Lastly we want to plot a set of scores, in this case the signature scores, in an image. 
-
+Lastly we can plot each set of kinase scores in an image by taking the signature/ranking signature approach we did for the bulk data. 
 
 ```{r plot image}
 
- p<-plotGrid(phumap,'RedPulp')
+all.res<-lapply(unique(substr$Kinase),function(x){
+  subs<-subset(substr,Kinase==x)$substrate
+  res<-calcSigScore(spat.phos,subs,x)
+  plotSigGrid(res,x)
+})
+  
+k1<-all.res[[1]]
+k2<-plotSigGrid(spat.phos,'WhitePulp')
+ 
+cowplot::plot_grid(k1,k2)
 
- p1<-ggplot(as.data.frame(colData(phumap)),aes(x=Xcoord,y=Ycoord,fill=WhitePulp))+
-  geom_raster()+theme_bw()+scale_fill_viridis_c()+
-    ggtitle(paste0("White pulp signature"))
-    
 
- pc<-cowplot::plot_grid(p,p1)
- pc
- ggsave('phosscoredImage.png',pc,width=12)
+k1<-all.res[[2]]
+k2<-plotSigGrid(spat.phos,'WhitePulp')
+ 
+kres<-cowplot::plot_grid(k1,k2)
+kres
+ggsave('csnk2a1res.png',kres)
 ```
 
-Now that we have a rank score, we can "call" each voxel. 
+It doesn't really seem like CSNK2A1 kinase activity is that correlated with white pulp from this image. 
 
+What if we just plot the scores?
 
-```{r voxel scoring}
-
-cols<-list(red='darkred',white='white',None='darkgrey',Both='darkorange')
-newDat<-colData(phumap)%>%
+```{r kinase scoring by voxel}
+vdat<-colData(spat.phos)%>%
   as.data.frame()%>%
-  mutate(isRed=RedPulp>0.5,isWhite=WhitePulp>0.5)%>%
-  mutate(pulp=ifelse(isRed,ifelse(isWhite,'Both','red'),ifelse(isWhite,'white','None')))
+  tibble::rownames_to_column('Voxel')
 
-p1<-ggplot(newDat)+geom_point(aes(x=RedPulp,y=WhitePulp,col=pulp))+scale_color_manual(values=cols)
+tab<-expToLongForm(spat.phos,'substrate')%>%
+  right_join(substr)
 
-p2<-ggplot(newDat,aes(x=Xcoord,y=Ycoord,fill=pulp))+geom_raster()+scale_fill_manual(values=cols)
+tab%>%left_join(vdat)%>%ggplot(aes(x=pulp,y=LogRatio,col=pulp))+
+  geom_jitter()+
+  facet_grid(~Kinase)
 
-res<-cowplot::plot_grid(p1,p2)
-res
-ggsave('phosassignedVals.png',res,width=12)
+p<-tab%>%left_join(vdat)%>%
+  subset(pulp!='None')%>%
+  ggplot(aes(x=pulp,y=LogRatio,col=pulp))+
+  geom_boxplot()+
+  facet_grid(~Kinase)+
+  theme_bw()
+
+p
+
+ggsave('kinaseSubstrateDist.png',p)
+
 ```
 
 
+All the expression of the substrates is pretty low - maybe we can try to find another way to bring in kinases associated with
+white pulp? 
 
+## Correlation based kinase enrichment
+
+Here we will score substrates with their correlation to the white pulp score. 
+
+```{r correlation scoring }
+
+spat.phos<-calcCorrelationWithScore(spat.phos,'WhitePulp')
+
+cor.white<-rowData(spat.phos)%>%
+    as.data.frame()%>%
+    tidyr::separate(X,into=c('gene','mod'),sep='_')%>%
+    tidyr::unite(gene,mod,col='subs',sep='-')%>%
+    leapR::leapR(kinasesubstrates,
+               enrichment_method = 'enrichment_in_order',
+               datamatrix=.,id_column='subs',primary_columns='WhitePulp.correlation')%>%
+  subset(!is.na(pvalue))%>%
+  arrange(pvalue)
+             
+print(head(cor.white))
+spat.phos<-calcCorrelationWithScore(spat.phos,'RedPulp')
+
+cor.red<-rowData(spat.phos)%>%
+    as.data.frame()%>%
+    tidyr::separate(X,into=c('gene','mod'),sep='_')%>%
+    tidyr::unite(gene,mod,col='subs',sep='-')%>%
+    leapR::leapR(kinasesubstrates,
+               enrichment_method = 'enrichment_in_order',
+               datamatrix=.,id_column='subs',primary_columns='RedPulp.correlation')%>%
+  subset(!is.na(pvalue))%>%
+  arrange(pvalue)
+
+print(head(cor.red))
+
+```
+
+This is not super productive, nothing is statistically significant after FDR correction. So, we circle back to our network analysis.
+
+```{r network}
+
+diffex.net<-buildNetwork(spat.phos,featureName='pulp.limma.logFC',addPhos=TRUE)
+
+```

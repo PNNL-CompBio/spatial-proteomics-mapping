@@ -27,11 +27,71 @@ calcSigScore<-function(sce, sigProts,sigName){
 }
 
 
+#' expToLongForm: helper function that moves expression
+#' matrix to long form
+expToLongForm<-function(sce,rowname='prot'){
+  
+  exprs(spat.phos)%>%
+    as.matrix()%>%
+    as.data.frame()%>%
+    tibble::rownames_to_column(rowname)%>%
+    tidyr::pivot_longer(c(2:(1+ncol(exprs(spat.phos)))),names_to='Voxel',values_to='LogRatio')
+}
 
-#'plotGrid: plots a numeric value using the Xcoord and Ycoord columns
+#' calcCorrelationWithScore: calculates the correlation of each
+#' element with a numeric vector of the score, such as distance or 
+#' an immune score, puts value in RowData
+#' @param sce
+#' @param scoreName: name of score
+#' @param protVal: name of feature, e.g. prot or substrate
+#' @param method: spearman or pearson
+#' @return SingleCellExperiment objecti
+calcCorrelationWithScore<-function(sce, 
+                                   scoreName,
+                                   protVal='prot',
+                                   method='spearman'){
+    
+    #join value with expression
+    score.dat<-colData(sce)%>%
+      as.data.frame()%>%
+      dplyr::select(all_of(scoreName))%>%
+      tibble::rownames_to_column('Voxel')%>%
+      left_join(expToLongForm(sce,protVal))
+    
+    #calculate correlation
+    prot.cor<-score.dat%>%
+      dplyr::rename(pname=protVal,score=scoreName)%>%
+      group_by(pname)%>%
+      summarize(corVal=cor(score,LogRatio,method=method))
+   
+    newDataFrame<-rowData(sce)
+    newDataFrame[[paste(scoreName,'correlation')]]<-unlist(tibble::column_to_rownames(prot.cor,'pname'))
+    rowData(sce)<-newDataFrame
+    
+    sce
+}
+
+
+#' plotFeatureGrid: plots a numeric value of a single feature or set of features
+#' @param sce
+#' @param features 
+#' 
+plotFeatureGrid<-function(sce,feats,featname){
+  require(ggplot2)
+  require(SingleCellExperiment)
+  
+  p<-calcSigScore(sce,feats,featname)%>%
+    plotSigGrid(featname)
+
+    return(p)
+}
+
+
+#'plotSigGrid: plots a numeric value using the Xcoord and Ycoord columns
+#'takes a numeric score from the colDAta
 #'@param sce SingleCellExperiment
 #'
-plotGrid<-function(sce,sigName){
+plotSigGrid<-function(sce,sigName){
   require(ggplot2)
   require(SingleCellExperiment)
 
@@ -67,6 +127,27 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
   
   # print(topTable(fit, coef=2))
   res <- topTable(fit, coef=2, number=Inf, sort.by="P")
-  res <- data.frame(featureID=rownames(res), res, stringsAsFactors = F)
-  return(res)
+ # res <- data.frame(featureID=rownames(res), res, stringsAsFactors = F)
+  colnames(res)<-paste(paste(column,'limma'),colnames(res))
+  res<-res%>%
+    tibble::rownames_to_column('X')
+  rd<-rowData(sce)%>%
+    as.data.frame()%>%
+    full_join(res)
+  rowData(sce)<-rd
+  return(sce)
+}
+
+
+
+#' buildnetwork
+#' Builds network using SingleCellExpression object and values
+#' that were applied to the row data
+#' @import PCSF
+buildNetwork<-function(sce,featName,addPhos=FALSE){
+  library(PCSF)
+  strdb<-data('STRING')
+  
+  ##first get diffex proteins
+  
 }

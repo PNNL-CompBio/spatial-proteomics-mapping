@@ -154,3 +154,7 @@ phospho.sorted<-SingleCellExperiment(assays=list(logcounts=as(phcounts,'dgCMatri
                                   rowData=rownames(phcounts))
 
 
+
+##lastly, let's normalize the phospho values by the matchced global values
+
+

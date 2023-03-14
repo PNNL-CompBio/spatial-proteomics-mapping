@@ -14,9 +14,8 @@ library(cowplot)
 #library(leapR)
 library(dplyr)
 
-
 source('spleenDataFormatting.R')
-
+source('spatialProtUtils.R')
 ```
 
 The assignment of pulp type from the basic data was not robust. Here we will use the cell type signatures from the sorted data to label the voxels.
@@ -28,27 +27,6 @@ Here we get the differential expression from the sorted cells.
 
 ```{r cell type signatures}
 
-library(limma)
-
-## here we do differential expression again
-doDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
-  
-  #collect samples by factor
-  samp1<-which(colData(sce)[[column]]==vals[1])
-  samp2<-which(colData(sce)[[column]]==vals[2])
-  
-  fac <- factor(rep(c(2,1),c(length(samp2), length(samp1))))
-  #print(fac)
-  design <- model.matrix(~fac)
-  #print(design)
-  fit <- lmFit(exprs(sce)[,c(samp2,samp1)], design)
-  fit <- eBayes(fit)
-
-   # print(topTable(fit, coef=2))
-  res <- topTable(fit, coef=2, number=Inf, sort.by="P")
-  res <- data.frame(featureID=rownames(res), res, stringsAsFactors = F)
-  return(res)
-}
 
 ##get fit values for diffex
 pumap<-scater::runPCA(spat.prot)
@@ -58,10 +36,15 @@ phumap<-spat.phos%>%
 
 fullmap<-scater::runPCA(global.sorted)
 
-full<-doDiffEx(fullmap)
+full<-spatialDiffEx(fullmap)
 
-upsig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC>1)
-downsig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC<(-1))
+upsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC>1)
+
+downsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC<(-1))
 
 print(paste0('we now have a white pulp signature of ',nrow(upsig)))
 print(paste0('we now have a red pulp signature of ',nrow(downsig)))
@@ -95,11 +78,17 @@ These signatures cluster voxels, but don't serve as great markers because tehy a
 ```{r reduced signature}
 
 
-whitesig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC>1)%>%subset(AveExpr>1)
-redsig<-full%>%subset(adj.P.Val<0.01)%>%subset(logFC<(-1))%>%subset(AveExpr>(1))
+whitesig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC>1)%>%
+  subset(AveExpr>1)
+redsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC<(-1))%>%
+  subset(AveExpr>(1))
 
-print(paste0('we now have a white pulp signature of ',nrow(whitesig)))
-print(paste0('we now have a red pulp signature of ',nrow(redsig)))
+print(paste0('we now have a reduced white pulp signature of ',nrow(whitesig)))
+print(paste0('we now have a reduced red pulp signature of ',nrow(redsig)))
 
 pheatmap(as.matrix(exprs(fullmap)[rownames(whitesig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
 
@@ -117,8 +106,10 @@ pheatmap(as.matrix(exprs(pumap)[intersect(rownames(redsig),rownames(rowData(puma
 So we have a handful of proteins that are marking the signature. Let's see if we can link them in a biological fashion.
 
 ```{r pathway enrichment}
-library(clusterProfiler)
+#library(clusterProfiler)
+library(leapR)
 library(org.Hs.eg.db)
+data('krbpaths')
 map<-as.list(org.Hs.egSYMBOL2EG)
 
 redgenes<-lapply(rownames(redsig),function(x) return(map[[x]][1]))
@@ -126,35 +117,42 @@ whitegenes<-lapply(rownames(whitesig),function(x) return(map[[x]][1]))
 
 universe<-unlist(lapply(rownames(full),function(x) return(map[[x]][1])))
 
-red.enrich<-enrichGO(gene=redgenes,
-                   OrgDb=org.Hs.eg.db,ont='BP',
-                  qvalueCutoff=0.05,
-                   universe=universe)
 
-white.enrich<-enrichGO(gene=whitegenes,
-                   OrgDb=org.Hs.eg.db,ont='BP',
-                  qvalueCutoff=0.05,
-                   universe=universe)
 
-goplot(red.enrich)
-goplot(white.enrich)
+order.enrich<-leapR::leapR(geneset=krbpaths,
+                         enrichment_method='enrichment_in_order',id_column='featureID',
+                    datamatrix=full,primary_columns='logFC')#,greaterthan=T,threshold=1)
+sig.enrich<-order.enrich%>%
+  subset(BH_pvalue<0.05)
+
+print(sig.enrich)
+
+groups<-stringr::str_split(sig.enrich[1,]$ingroupnames,pattern=', ')%>%unlist()
+
+
+pheatmap(as.matrix(exprs(fullmap)[intersect(groups,rownames(rowData(fullmap))),]),
+         annotation_col = as.data.frame(colData(fullmap)),
+         main='CD3 and TCR signature')
+
+pheatmap(as.matrix(exprs(pumap)[intersect(groups,rownames(rowData(pumap))),]),
+         annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],
+         main='CD3 and TCR signature')
+
+#red.enrich<-full%>%mutate(otherLfc=logFC*-1)%>%
+#  leapR(geneset=krbpaths,datamatrix=.,enrichment_method='enrichment_in_sets',primary_columns='otherLfc',id_column='featureID',greaterthan=T,threshold=1)
+
+#white.enrich<-enrichGO(gene=whitegenes,
+#                   OrgDb=org.Hs.eg.db,ont='BP',
+#                  qvalueCutoff=0.05,
+#                   universe=universe)
+
+#goplot(red.enrich)
+#goplot(white.enrich)
 ```
 
 This looks more promising. We can now annotate each sample by the mean expression of the signature proteins, see if that works?
 
 ```{r calculate signature scores}
-
-calcSigScore<-function(sce, sigProts,sigName){
-  
-  allranks<-apply(exprs(sce),2,function(x) rev(rank(x)))
-  
-  allpercs<-apply(exprs(sce),2,function(x) rev(percent_rank(x)))
-  siggenes<-allpercs[intersect(rownames(allpercs),sigProts),]
-  sigScore=apply(siggenes,2,mean,na.rm=TRUE)
-  
-  colData(sce)[[sigName]]<-sigScore
-  sce
-}
 
 pumap<-calcSigScore(pumap,rownames(redsig),'RedPulp')%>%
   calcSigScore(rownames(whitesig),'WhitePulp')
@@ -165,6 +163,7 @@ p2<-plotPCA(pumap,color_by='RedPulp')
 
 p3<-cowplot::plot_grid(p2,p1)
 p3
+
 ggsave('pcaLabeledByScore.png',p3,width=12)
 
 ```
@@ -179,14 +178,9 @@ Lastly we want to plot a set of scores, in this case the signature scores, in an
 
 ```{r plot image}
 
- p<-ggplot(as.data.frame(colData(pumap)),aes(x=Xcoord,y=Ycoord,fill=RedPulp))+
-  geom_raster()+scale_fill_viridis_c()+
-  theme_bw()+
-  ggtitle(paste0('Red pulp signature'))
-  
- p1<-ggplot(as.data.frame(colData(pumap)),aes(x=Xcoord,y=Ycoord,fill=WhitePulp))+
-  geom_raster()+theme_bw()+scale_fill_viridis_c()+
-    ggtitle(paste0("White pulp signature"))
+
+ p <- plotGrid(pumap,'RedPulp')
+ p1<-plotGrid(pumap,'WhitePulp')
     
 
  pc<-cowplot::plot_grid(p,p1)
@@ -220,18 +214,6 @@ ggsave('assignedVals.png',res,width=12)
 Let's try to build biological networks using the signatures.
 
 ```{r build networks,echo=F, warning=F}
-library(PCSF)
-data("STRING")
-ppi<-construct_interactome(STRING)
-redweights<-abs(redsig$logFC)
-names(redweights)<-redsig$featureID
-
-red.net<-PCSF::PCSF_rand(ppi,redweights,n=500)
-
-whiteweights<-abs(whitesig$logFC)
-names(whiteweights)<-whitesig$featureID
-
-white.net<-PCSF::PCSF_rand(ppi,whiteweights,n=500)
 
 
 ```
