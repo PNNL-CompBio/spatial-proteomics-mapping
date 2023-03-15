@@ -185,7 +185,7 @@ buildNetwork<-function(sce,featName,beta=.5,nrand=100){
     adf<-apply(kdat,1,function(x)
       #for each substrate interaction, add a link from the kinase gene -> substreate -> substrate gene
       data.frame(from=c(x[['GENE']],x[['subval']]),to=c(x[['subval']],x[['SUB_GENE']]),
-                 cost=c(mval*1.5,mval/4)))%>%  ##arbitrary costs based on mean cost of edges around network
+                 cost=c(mval/2,mval/3)))%>%  ##arbitrary costs based on mean cost of edges around network
       do.call(rbind,.)
   }else{
     adf<-data.frame()

@@ -87,10 +87,11 @@ res<- spat.phos%>%
 
 
 print(head(res))
-num.diff<-nrow(subset(res,adj.P.Val<0.01))
+res<-res%>%mutate(signif=(adj.P.Val<0.01)&(abs(logFC)>1))
 
+num.diff<-nrow(subset(res,signif))
+               
 p<-res%>%
-  mutate(signif=adj.P.Val<0.01)%>%
   mutate(logPval=log10(adj.P.Val)*-1)%>%
   ggplot(aes(x=logFC,y=logPval,col=signif))+geom_point()+
   ggtitle(paste0(num.diff,' differentially expressed phosphosites'))
@@ -98,6 +99,11 @@ p<-res%>%
 p
 
 ggsave('diffExPsites.png',p)
+
+pheatmap(exprs(spat.phos)[rownames(res[which(res$signif),]),],
+          annotation_col = as.data.frame(colData(spat.phos)[,c('RedPulp','WhitePulp')]),
+         clustering_distance_cols = 'correlation',
+         clustering_distance_rows = 'correlation',filename='diffExPsitesheatemap.png')
          
 ```
 
@@ -126,22 +132,7 @@ p2<-ggplot(sig.kin,aes(x=log10(BH_pvalue)*-1,y=Kinase))+geom_bar(stat='identity'
 p3<-cowplot::plot_grid(p1,p2)
 p3
 ggsave('Kinaseenrichment.png',p3)
-#whitesig<-upsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC>.25)%>%subset(AveExpr>0)
-#redsig<-downsig#full%>%subset(adj.P.Val<0.05)%>%subset(logFC<(-.25))%>%subset(AveExpr>(0))
 
-#print(paste0('we now have a white pulp signature of ',nrow(whitesig)))
-#print(paste0('we now have a red pulp signature of ',nrow(redsig)))
-
-#pheatmap(as.matrix(exprs(fullmap)[rownames(whitesig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
-
-
-#pheatmap(as.matrix(exprs(pumap)[intersect(rownames(whitesig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
-
-
-#pheatmap(as.matrix(exprs(fullmap)[rownames(redsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
-
-
-#pheatmap(as.matrix(exprs(phumap)[intersect(rownames(redsig),rownames(rowData(phumap))),]),annotation_col = as.data.frame(colData(phumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
 
 ```
 
@@ -169,7 +160,7 @@ pheatmap(exprs(spat.phos)[unique(substr$substrate),],
          annotation_col = as.data.frame(colData(spat.phos)[,c('RedPulp','WhitePulp')]),
          clustering_distance_cols = 'correlation',
          clustering_distance_rows = 'correlation',
-         filename = 'diffExPhosphoHeatmap.pdf')
+         filename = 'substratesOfEnrichmdKinaseHeatmap.pdf')
 ```
 
 This isn't quite right - the 'green' items are definitely on the right, but we need some sort of threshold to 'call' the white vs. red pulp items.
@@ -190,14 +181,10 @@ all.res<-lapply(unique(substr$Kinase),function(x){
 k1<-all.res[[1]]
 k2<-plotSigGrid(spat.phos,'WhitePulp')
  
-cowplot::plot_grid(k1,k2)
-
-
-k1<-all.res[[2]]
-k2<-plotSigGrid(spat.phos,'WhitePulp')
- 
 kres<-cowplot::plot_grid(k1,k2)
+
 kres
+
 ggsave('csnk2a1res.png',kres)
 ```
 
@@ -273,6 +260,8 @@ This is not super productive, nothing is statistically significant after FDR cor
 
 ```{r network}
 
-diffex.net<-buildNetwork(spat.phos,featureName='pulp.limma.logFC',addPhos=TRUE)
+diffex.net<-buildNetwork(spat.phos,featName='pulp.limma.logFC')
+plot.PCSF(diffex.net$graph)
+
 
 ```

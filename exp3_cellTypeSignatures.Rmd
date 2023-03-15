@@ -36,7 +36,15 @@ phumap<-spat.phos%>%
 
 fullmap<-scater::runPCA(global.sorted)
 
-full<-spatialDiffEx(fullmap)
+fullmap<-spatialDiffEx(fullmap)
+
+full<- fullmap%>%
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='pulpAnnotation.limma.logFC',
+                adj.P.Val='pulpAnnotation.limma.adj.P.Val',
+                AveExpr='pulpAnnotation.limma.AveExpr')
 
 upsig<-full%>%
   subset(adj.P.Val<0.01)%>%
@@ -90,16 +98,20 @@ redsig<-full%>%
 print(paste0('we now have a reduced white pulp signature of ',nrow(whitesig)))
 print(paste0('we now have a reduced red pulp signature of ',nrow(redsig)))
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(whitesig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
+pheatmap(as.matrix(exprs(fullmap)[rownames(whitesig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,
+         main='White pulp signature',filename='whitePulpsorted.png')
 
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(whitesig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+pheatmap(as.matrix(exprs(pumap)[intersect(rownames(whitesig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],
+         main='White pulp signature',filename='whitePulp2d.png')
 
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(redsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+pheatmap(as.matrix(exprs(fullmap)[rownames(redsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature',
+         filename='redPulpsorted.png')
 
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(redsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
+pheatmap(as.matrix(exprs(pumap)[intersect(rownames(redsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature',
+         filename='redPulp2d.png')
 
 ```
 
@@ -138,19 +150,17 @@ pheatmap(as.matrix(exprs(pumap)[intersect(groups,rownames(rowData(pumap))),]),
          annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],
          main='CD3 and TCR signature')
 
-#red.enrich<-full%>%mutate(otherLfc=logFC*-1)%>%
-#  leapR(geneset=krbpaths,datamatrix=.,enrichment_method='enrichment_in_sets',primary_columns='otherLfc',id_column='featureID',greaterthan=T,threshold=1)
+pheatmap(as.matrix(exprs(fullmap)[intersect(groups,rownames(rowData(fullmap))),]),
+         annotation_col = as.data.frame(colData(fullmap)),
+         main='CD3 and TCR signature',filename='cd3tcrSorted.png')
 
-#white.enrich<-enrichGO(gene=whitegenes,
-#                   OrgDb=org.Hs.eg.db,ont='BP',
-#                  qvalueCutoff=0.05,
-#                   universe=universe)
+pheatmap(as.matrix(exprs(pumap)[intersect(groups,rownames(rowData(pumap))),]),
+         annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],
+         main='CD3 and TCR signature',filename='cd3tcr2d.png')
 
-#goplot(red.enrich)
-#goplot(white.enrich)
 ```
 
-This looks more promising. We can now annotate each sample by the mean expression of the signature proteins, see if that works?
+There is only one kegg/reactome pathway that is enriched, and it is related to TCR signaling. 
 
 ```{r calculate signature scores}
 
@@ -209,12 +219,4 @@ ggsave('assignedVals.png',res,width=12)
 ```
 
 
-## Networks of signatures
-
-Let's try to build biological networks using the signatures.
-
-```{r build networks,echo=F, warning=F}
-
-
-```
 
