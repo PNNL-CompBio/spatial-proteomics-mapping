@@ -90,6 +90,7 @@ whitesig<-full%>%
   subset(adj.P.Val<0.01)%>%
   subset(logFC>1)%>%
   subset(AveExpr>1)
+
 redsig<-full%>%
   subset(adj.P.Val<0.01)%>%
   subset(logFC<(-1))%>%
