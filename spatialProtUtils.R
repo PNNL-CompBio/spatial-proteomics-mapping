@@ -116,7 +116,11 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
   
   #collect samples by factor
   samp1<-which(colData(sce)[[column]]==vals[1])
-  samp2<-which(colData(sce)[[column]]==vals[2])
+  if(length(vals)>1){
+    samp2<-which(colData(sce)[[column]]==vals[2])
+  }else{
+    samp2=setdiff(1:ncol(colData(sce)),samp1)
+  }
   
   fac <- factor(rep(c(2,1),c(length(samp2), length(samp1))))
   #print(fac)
