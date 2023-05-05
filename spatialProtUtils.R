@@ -27,11 +27,12 @@ calcSigScore<-function(sce, sigProts,sigName){
 }
 
 
+
 #' expToLongForm: helper function that moves expression
 #' matrix to long form
 expToLongForm<-function(sce,rowname='prot'){
   
-  exprs(spat.phos)%>%
+  exprs(sce)%>%
     as.matrix()%>%
     as.data.frame()%>%
     tibble::rownames_to_column(rowname)%>%
@@ -111,7 +112,7 @@ plotSigGrid<-function(sce,sigName){
 #'spatialDiffEx: does differential expression using annotations in object
 #'
 ## here we do differential expression again
-spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
+spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white'),feat='X'){
   library(limma)
   
   #collect samples by factor
@@ -134,7 +135,7 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white')){
  # res <- data.frame(featureID=rownames(res), res, stringsAsFactors = F)
   colnames(res)<-paste(paste(column,'limma'),colnames(res))
   res<-res%>%
-    tibble::rownames_to_column('X')
+    tibble::rownames_to_column(feat)
   rd<-rowData(sce)%>%
     as.data.frame()%>%
     full_join(res)
@@ -229,3 +230,40 @@ buildNetwork<-function(sce,featName,beta=.5,nrand=100){
   write_graph(subnet,format='gml',file=paste0(featName,'network.gml'))
   return(list(graph=subnet,fname=paste0(featName,'.networkgml')))
 }
+
+
+
+#' adjustPhosphoWithGlobal
+#' For some phospho analysis, we might want to investigate the phosphosites that are changing
+#' indpendently of the proteomiocs data. Therefore we consume two independent data objects and subtract one from the other
+#' @param phos.obj phosphoproteomic data
+#' @param prot.obj proteomic data
+#' @return phos.obj
+adjustPhophoWithGlobal<-function(phos.obj,prot.obj){
+  
+  #first match column headeers
+  samps <- intersect(colnames(exprs(phos.obj)),colnames(exprs(prot.obj)))
+  
+  #change new expresion values to subtract protein values when available
+  newExpr<-expToLongForm(phos.obj,'Phosphosite')%>%
+    tidyr::separate(Phosphosite,into=c('Protein','Site'),sep='_')%>%
+    dplyr::rename(oldLogRatio='LogRatio')%>%
+    left_join(expToLongForm(prot.obj,'Protein'))%>%
+    mutate(diff=(oldLogRatio-LogRatio))%>%
+    subset(!is.na(diff))%>%
+    tidyr::unite(c(Protein,Site),col='Phosphosite',sep='_')%>%
+    dplyr::select(-c(oldLogRatio,LogRatio))%>%
+    tidyr::pivot_wider(names_from=Voxel,values_from=diff)%>%
+    tibble::column_to_rownames('Phosphosite')%>%
+    as.matrix()
+    
+  #create new singleCellExperiment
+  new.phos<-SingleCellExperiment(assays=list(logcounts=as(newExpr,'dgCMatrix')),
+                                         colData=colData(phos.obj),
+                                         rowData=rownames(newExpr))
+  
+  new.phos
+  
+  
+}
+

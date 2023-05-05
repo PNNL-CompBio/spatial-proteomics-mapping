@@ -6,8 +6,8 @@ library(dplyr)
 library(tidyr)
 library(SingleCellExperiment)
 library(org.Hs.eg.db)
-#source("synapseUtil.R")
-#syn<-loadSynapse()
+source("synapseUtil.R")
+syn<-loadSynapse()
 
 
 swp.map<-as.data.frame(org.Hs.egUNIPROT)%>%

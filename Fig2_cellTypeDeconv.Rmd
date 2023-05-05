@@ -1,0 +1,161 @@
+---
+title: "Figure 2 cell type deconvoltion"
+output: html_document
+author: Sara Gosline
+date: "2023-05-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(ggfortify)
+library(cowplot)
+#library(leapR)
+library(dplyr)
+
+source('spleenDataFormatting.R')
+library(spammer)
+source('spatialProtUtils.R')
+```
+
+The assignment of pulp type from the basic data was not robust. Here we will use the cell type signatures from the sorted data to label the voxels.
+
+
+## Cell type signatures
+
+Here we get the differential expression from the sorted cells.
+
+```{r cell type signatures}
+
+
+##get fit values for diffex
+pumap<-scater::runPCA(spat.prot)
+
+phumap<-spat.phos%>%
+  scater::runPCA()
+
+fullmap<-scater::runPCA(global.sorted)
+
+fullmap<-spatialDiffEx(fullmap)
+
+full<- fullmap%>%
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='pulpAnnotation.limma.logFC',
+                adj.P.Val='pulpAnnotation.limma.adj.P.Val',
+                AveExpr='pulpAnnotation.limma.AveExpr')
+
+upsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC>1)|>  subset(AveExpr>(1))
+
+
+downsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC<(-1))|>
+    subset(AveExpr>(1))
+
+
+print(paste0('we now have a white pulp signature of ',nrow(upsig)))
+print(paste0('we now have a red pulp signature of ',nrow(downsig)))
+
+
+
+###write signature genes tot able
+sigtab<-rbind(data.frame(upsig,signature='white pulp'),
+              data.frame(downsig,signature='red pulp'))
+
+write.table(sigtab,file='suppTableGenesInRedWhiteSig.csv',sep=',',row.names=F,col.names=T)
+```
+
+## Plot values in heatmap
+Let's now plot the signatures in heatmaps of the original and spatial data.
+
+
+```{r pressure, echo=FALSE}
+library(pheatmap)
+
+
+pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
+
+
+pheatmap(as.matrix(exprs(pumap)[intersect(rownames(upsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+
+
+pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+
+
+pheatmap(as.matrix(exprs(pumap)[intersect(rownames(downsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
+
+
+```
+
+These signatures cluster voxels, but don't serve as great markers because tehy are still very much 'down' regulated. We want to pick the top expressed proteins that represent each pulp type.
+
+
+
+So we have a handful of proteins that are marking the signature. Let's see if we can link them in a biological fashion.
+
+
+There is only one kegg/reactome pathway that is enriched, and it is related to TCR signaling. 
+
+```{r calculate signature scores}
+
+pumap<-calcSigScore(pumap,rownames(downsig),'RedPulp')%>%
+  calcSigScore(rownames(upsig),'WhitePulp')
+  
+p1<-plotPCA(pumap,color_by='WhitePulp')
+
+p2<-plotPCA(pumap,color_by='RedPulp')
+
+p3<-cowplot::plot_grid(p2,p1)
+p3
+
+ggsave('fig2_pcaLabeledByScore.pdf',p3,width=12)
+
+```
+
+This isn't quite right - the 'green' items are definitely on the right, but we need some sort of threshold to 'call' the white vs. red pulp items.
+
+
+### Plot in image
+
+Lastly we want to plot a set of scores, in this case the signature scores, in an image. 
+
+
+```{r plot image}
+
+
+ p <- plotSigGrid(pumap,'RedPulp')
+ p1<-plotSigGrid(pumap,'WhitePulp')
+    
+
+ pc<-cowplot::plot_grid(p,p1)
+ pc
+ ggsave('fig2_scoredImage.pdf',pc,width=12)
+```
+
+Now that we have a rank score, we can "call" each voxel. 
+
+
+```{r voxel scoring}
+
+cols<-list(red='darkred',white='white',None='darkgrey')
+newDat<-colData(pumap)%>%
+  as.data.frame()%>%
+  mutate(isRed=RedPulp>0.5,isWhite=WhitePulp>0.5)%>%
+  mutate(pulp=ifelse(isRed,'red',ifelse(isWhite,'white','None')))
+
+p1<-ggplot(newDat)+geom_point(aes(x=RedPulp,y=WhitePulp,col=pulp))+scale_color_manual(values=cols)
+
+p2<-ggplot(newDat,aes(x=Xcoord,y=Ycoord,fill=pulp))+geom_raster()+scale_fill_manual(values=cols)
+
+res<-cowplot::plot_grid(p1,p2)
+res
+ggsave('fig2_assignedVals.pdf',res,width=12)
+```
+
+
+
