@@ -1,0 +1,272 @@
+---
+title: "Figure 3 Spatial Signatures"
+output: html_document
+date: "2023-05-05"
+---
+
+The goal of this MD is to evaluate the combination of proteomic and phosphoproteomic measurements to evaluate the spleen data.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("spleenDataFormatting.R")
+source('spatialProtUtils.R')
+library(pheatmap)
+```
+
+## First collect and annotate voxels by signature
+
+First lets combine the signatures to see what we get
+
+
+```{r combined}
+pumap<-scater::runPCA(spat.prot)
+
+phumap<-spat.phos%>%
+  scater::runPCA()
+
+fullmap<-scater::runPCA(global.sorted)
+
+fullmap<-spatialDiffEx(fullmap)
+
+full<- fullmap%>%
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='pulpAnnotation.limma.logFC',
+                adj.P.Val='pulpAnnotation.limma.adj.P.Val',
+                AveExpr='pulpAnnotation.limma.AveExpr')
+
+upsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC>1)|>  subset(AveExpr>(1))
+
+
+downsig<-full%>%
+  subset(adj.P.Val<0.01)%>%
+  subset(logFC<(-1))|>
+    subset(AveExpr>(1))
+
+pumap<-calcSigScore(pumap,rownames(downsig),'RedPulp')%>%
+  calcSigScore(rownames(upsig),'WhitePulp')
+
+phumap<-calcSigScore(phumap,rownames(downsig),'RedPulp')%>%
+  calcSigScore(rownames(upsig),'WhitePulp')
+
+```
+## Basic diffex and functional enrichment
+
+Based on annotated voxels, let's compute differentially expressed proteins and phosphosites and store in table. 
+
+
+```{r fdifferential expression}
+
+newVals<-colData(pumap)%>%
+  as.data.frame()%>%
+  mutate(isRed=RedPulp>0.5,isWhite=WhitePulp>0.5)%>%
+  mutate(pulp=ifelse(isRed,'red',ifelse(isWhite,'white','None')))
+
+colData(pumap)[['pulp']]<-newVals$pulp
+colData(phumap)[['pulp']]<-newVals$pulp
+
+protDiff<-spatialDiffEx(pumap,column='pulp',feat='Protein')|>
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='Protein',
+                logFC='pulp.limma.logFC',
+                adj.P.Val='pulp.limma.adj.P.Val',
+                AveExpr='pulp.limma.AveExpr')
+
+sigProts<-subset(protDiff,adj.P.Val<0.05)|>subset(logFC>.5)|>
+  arrange(logFC)
+
+
+
+pheatmap(as.matrix(exprs(pumap)[intersect(rownames(sigProts),rownames(rowData(pumap))),]),
+         annotation_col = as.data.frame(colData(pumap))[,c('WhitePulp','pulp')],
+         main='White pulp upregulated',cellheight = 10,filename='suppFullp0.05logfc.5white.pdf')
+
+
+##now we remove ribosomal proteins
+allprots<-rownames(sigProts)
+allprots<-allprots[-grep('^RP',allprots)]
+pheatmap(as.matrix(exprs(pumap)[intersect(allprots,rownames(rowData(pumap))),]),
+         clustering_distance_cols = 'correlation',clustering_distance_rows='correlation',
+         clustering_method = 'ward.D2',
+         annotation_col = as.data.frame(colData(pumap))[,c('WhitePulp','pulp')],
+         main='White pulp upregulated',cellheight = 10,filename='fig3Up_noribo_p0.05logfc.5white.pdf')
+
+
+phosDiff<-spatialDiffEx(phumap,column='pulp',feat='X')|>
+  rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='pulp.limma.logFC',
+                adj.P.Val='pulp.limma.adj.P.Val',
+                AveExpr='pulp.limma.AveExpr')|>
+  mutate(Phosphosite=stringr::str_replace(featureID,'_','-'))
+
+sigPhos<-subset(phosDiff,adj.P.Val<0.01)|>subset(logFC>1)|>
+  arrange(logFC)
+
+pheatmap(as.matrix(exprs(phumap)[intersect(rownames(sigPhos),rownames(rowData(phumap))),]),
+         annotation_col = as.data.frame(colData(phumap))[,c('row','pulp')],
+         main='White pulp upregulated',cellheight = 10,filename='suppFullp0.05logfc1whitePhos.pdf')
+
+###let's do heatmaps of these proteins 
+
+
+```
+
+## Now we can look for biological pathways
+
+```{r enrichment}
+library(leapR)
+library(org.Hs.eg.db)
+data('krbpaths')
+data('kinasesubstrates')
+map<-as.list(org.Hs.egSYMBOL2EG)
+gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
+
+prot.enrich<-leapR::leapR(geneset=krbpaths,
+                         enrichment_method='enrichment_in_sets',id_column='featureID',
+                    datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0.5)|>
+  subset(ingroup_n>1)
+
+sig.enrich<-prot.enrich%>%
+  subset(BH_pvalue<0.05)
+
+go.enrich<-leapR::leapR(geneset=gosigs,
+                         enrichment_method='enrichment_in_sets',id_column='featureID',
+                    datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0.5)|>
+  subset(ingroup_n>1)
+
+sig.go<-go.enrich%>%
+  subset(BH_pvalue<0.05)
+
+
+
+kin.enrich<-leapR::leapR(geneset=kinasesubstrates,
+                         enrichment_method='enrichment_in_sets',
+                         datamatrix=phosDiff,
+                         id_column='Phosphosite',primary_columns='logFC',greaterthan=T,threshold=1)|>
+    subset(ingroup_n>1)
+
+sig.kin<-kin.enrich|>subset(pvalue<0.05)
+
+
+
+##figure out what to do with this?
+```
+## Plot enrichment
+
+Now we need to write a function to plot enrichment status
+
+```{r plot enrichment}
+
+plotResult<-function(enrich_res){
+###the columns dpeendon the output a bit
+  library(ggplot2)
+  
+  odds<-enrich_res|>
+    arrange(desc(oddsratio))
+   
+  ##get the top 20
+  odds<-odds[1:min(20,nrow(enrich_res)),]|>
+    tibble::rownames_to_column('Pathway')|>
+    mutate(logPval=(-1*log10(pvalue)))
+  
+  odds$Pathway<-factor(odds$Pathway,levels=rev(odds$Pathway))
+  
+  ##plot
+  res<-ggplot(odds,aes(x=Pathway,y=oddsratio,fill=logPval))+
+    geom_bar(stat='identity')+
+    coord_flip()
+
+  res
+}
+
+kinplot<-plotResult(sig.kin)
+goplot<-plotResult(sig.go)
+pathplot<-plotResult(sig.enrich)
+
+p<-cowplot::plot_grid(pathplot,goplot,ncol=1)
+
+p
+
+ggsave('allEnrich.pdf',p,height=8,width=10)
+```
+
+## Focus on enriched PD1 signaling
+There are four genes in thePD1 signaling pathway, let's plot those
+
+```{r PD1}
+
+prots<-sig.enrich['REACTOME_PD1_SIGNALING','ingroupnames']|>
+  stringr::str_split(', ')|>
+  unlist()
+
+allfigs<-lapply(prots,function(x) plotFeatureGrid(pumap,x,x))
+
+gp<-cowplot::plot_grid(plotlist=allfigs,ncol=2)
+gp
+
+ggsave('pd1Signaling.pdf',gp,width=11,height=8)
+
+```
+
+
+## Kinase enrichment
+
+We do not see a lot of coherent kinase activity, but there is some, we can investigate here.
+
+```{r kinase enrichment and substrate ploting}
+
+kinplot
+
+ggsave('kinaseEnrichment.pdf',kinplot)
+
+
+csnk2a1<-stringr::str_split(sig.kin['CSNK2A1','ingroupnames'],', ')|>unlist()
+
+csnk2a2<-stringr::str_split(sig.kin['CSNK2A2','ingroupnames'],', ')|>unlist()
+
+p1<-lapply(csnk2a1,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x))
+
+gp1<-cowplot::plot_grid(plotlist=p1,ncol=3)
+gp1
+ggsave('csnk2a1Subs.pdf',gp1,height=12,width=12)
+p2<-lapply(csnk2a2,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x))
+
+gp2<-cowplot::plot_grid(plotlist=p2,ncol=2)
+gp2
+
+ggsave('csnk2a2Subs.pdf',gp2,height=6,width=8)
+
+
+```
+
+## Networks
+
+
+Let's try to build biological networks using the signatures.
+
+```{r build networks,echo=F, warning=F}
+library(PCSF)
+data("STRING")
+ppi<-construct_interactome(STRING)
+
+whiteweights<-abs(sigProts$logFC)
+names(whiteweights)<-sigProts$featureID
+
+white.net<-PCSF::PCSF_rand(ppi,whiteweights,n=500)
+
+
+##add in phosphosites to PPI
+whitephos<-abs(sigPhos$logFC)
+names(whitephos)<-sigPhos$Phosphosite
+
+
+
+
+
+```

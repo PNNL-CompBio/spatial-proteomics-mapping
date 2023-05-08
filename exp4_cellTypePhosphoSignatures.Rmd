@@ -13,7 +13,7 @@ library(ggfortify)
 library(cowplot)
 #library(leapR)
 library(dplyr)
-
+library(pheatmap)
 
 source('spleenDataFormatting.R')
 source('spatialProtUtils.R')
@@ -62,6 +62,7 @@ newDat<-colData(pumap)%>%
 
 
 #map signatures to spatial data
+spat.phos<-adjustPhophoWithGlobal(spat.phos,pumap)
 spat.phos<-scater::runPCA(spat.phos)
 colData(spat.phos)<-DataFrame(newDat)
 p<-plotPCA(spat.phos,colour_by='pulp')

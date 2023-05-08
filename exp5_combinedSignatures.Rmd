@@ -4,7 +4,7 @@ output: html_document
 date: "2023-02-27"
 ---
 
-The goal of this MD is to evaluate the combination of proteomic and phosphoproteomic measurements to evaluat the spleen data.
+The goal of this MD is to evaluate the combination of proteomic and phosphoproteomic measurements to evaluate the spleen data.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)

@@ -1,0 +1,65 @@
+---
+title: "Immune Deconvolution Analysis"
+author: "Sara Gosline"
+date: "2023-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load immune deconv files
+
+We have run the immune cell deconvolution on both the spatial data and the sorted data as a baseline.
+
+```{r loadData}
+
+source("spleenDataFormatting.R")
+
+###add in the sorted cell signature?
+
+spatial<-read.table('deconv/spatialProtMat-mcpcounter-LM7c.tsv',header=T,sep='\t',row.names=1,check.names=F)
+sorted<-read.table("deconv/globalProtMat-mcpcounter-LM7c.tsv",header=T,sep='\t',row.names=1,check.names=F)
+
+library(pheatmap)
+
+pheatmap(spatial)#,filename = 'spatialProtImmune.pdf',cellheight = 10)
+
+pheatmap(sorted)#,filename='sortedProtImmune.pdf',cellheight=10)
+
+```
+
+Now we want to map the scores to the spatialProt object. first we need to go through our voxel annotation strategy that we established -- using sorted cells to label
+spatial. Now we can use that to label the heatmaps.
+
+```{r voxel annotation}
+
+
+```
+
+
+
+
+## Plotting cell scores by voxel
+
+
+```{r gridplot, echo=FALSE}
+#library(spammer)
+#library(SingleCellExperiment) ##remove this once we update package
+source('spatialProtUtils.R')
+colData(spat.prot)<-cbind(colData(spat.prot),t(spatial))
+p1<-plotSigGrid(spat.prot,"B.cells")
+p2<-plotSigGrid(spat.prot,"T8.cells")
+p3<-plotSigGrid(spat.prot,"Granulocytes")
+p4<-plotSigGrid(spat.prot,"NK.cells")
+p5<-plotSigGrid(spat.prot,"MO")
+p6<-plotSigGrid(spat.prot,"DC")
+
+
+pl<-cowplot::plot_grid(p1,p2,p3,p4,p5,p6,nrow=3)
+pl
+
+ggsave("ImmCellPlots.pdf",pl,height=10,width=12)
+
+```
