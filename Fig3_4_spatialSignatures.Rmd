@@ -49,8 +49,10 @@ downsig<-full%>%
 pumap<-calcSigScore(pumap,rownames(downsig),'RedPulp')%>%
   calcSigScore(rownames(upsig),'WhitePulp')
 
-phumap<-calcSigScore(phumap,rownames(downsig),'RedPulp')%>%
-  calcSigScore(rownames(upsig),'WhitePulp')
+colData(phumap)[['RedPulp']]<-colData(pumap)$RedPulp
+
+colData(phumap)[['WhitePulp']]<-colData(pumap)$WhitePulp
+
 
 ```
 ## Basic diffex and functional enrichment
@@ -245,7 +247,7 @@ ggsave('csnk2a2Subs.pdf',gp2,height=6,width=8)
 
 ```
 
-## Networks
+## Networks show what we are missing with enrichment - mechanism? 
 
 
 Let's try to build biological networks using the signatures.
@@ -259,14 +261,21 @@ whiteweights<-abs(sigProts$logFC)
 names(whiteweights)<-sigProts$featureID
 
 white.net<-PCSF::PCSF_rand(ppi,whiteweights,n=500)
+PCSF::plot.PCSF(white.net)
+
 
 
 ##add in phosphosites to PPI
 whitephos<-abs(sigPhos$logFC)
 names(whitephos)<-sigPhos$Phosphosite
 
+fullnet<-buildNetwork(whiteweights,whitephos,beta=1,nrand=100)
+
+plot.PCSF(fullnet$graph)
 
 
+```
+CD22 and CD19 are note measured, but implicated in the network. can we stain for them?
 
 
 ```

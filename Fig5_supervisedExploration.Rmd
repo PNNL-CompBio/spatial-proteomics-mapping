@@ -29,7 +29,6 @@ Here we get the differential expression from the sorted cells.
 ```{r cell type signatures}
 
 
-##get fit values for diffex
 pumap<-scater::runPCA(spat.prot)
 
 phumap<-spat.phos%>%
@@ -57,87 +56,111 @@ downsig<-full%>%
   subset(logFC<(-1))|>
     subset(AveExpr>(1))
 
-
-print(paste0('we now have a white pulp signature of ',nrow(upsig)))
-print(paste0('we now have a red pulp signature of ',nrow(downsig)))
-
-
-
-###write signature genes tot able
-sigtab<-rbind(data.frame(upsig,signature='white pulp'),
-              data.frame(downsig,signature='red pulp'))
-
-write.table(sigtab,file='suppTableGenesInRedWhiteSig.csv',sep=',',row.names=F,col.names=T)
-```
-
-## PTPN6 activity
-What is this protein doing with its phosphosites?
-
-```{r pressure, echo=FALSE}
-library(pheatmap)
-
-
-```
-
-## CD immune proteins
-
-Now we can look at individual proteins as well
-
-```{r calculate signature scores}
-
 pumap<-calcSigScore(pumap,rownames(downsig),'RedPulp')%>%
   calcSigScore(rownames(upsig),'WhitePulp')
-  
-p1<-plotPCA(pumap,color_by='WhitePulp')
 
-p2<-plotPCA(pumap,color_by='RedPulp')
+##now project same scores to phosphosites
 
-p3<-cowplot::plot_grid(p2,p1)
-p3
+colData(phumap)[['RedPulp']]<-colData(pumap)$RedPulp
 
-ggsave('fig2_pcaLabeledByScore.pdf',p3,width=12)
+colData(phumap)[['WhitePulp']]<-colData(pumap)$WhitePulp
 
-```
-
-This isn't quite right - the 'green' items are definitely on the right, but we need some sort of threshold to 'call' the white vs. red pulp items.
-
-
-### Plot in image
-
-Lastly we want to plot a set of scores, in this case the signature scores, in an image. 
-
-
-```{r plot image}
-
-
- p <- plotSigGrid(pumap,'RedPulp')
- p1<-plotSigGrid(pumap,'WhitePulp')
-    
-
- pc<-cowplot::plot_grid(p,p1)
- pc
- ggsave('fig2_scoredImage.pdf',pc,width=12)
-```
-
-Now that we have a rank score, we can "call" each voxel. 
-
-
-```{r voxel scoring}
-
-cols<-list(red='darkred',white='white',None='darkgrey')
-newDat<-colData(pumap)%>%
+newVals<-colData(pumap)%>%
   as.data.frame()%>%
   mutate(isRed=RedPulp>0.5,isWhite=WhitePulp>0.5)%>%
   mutate(pulp=ifelse(isRed,'red',ifelse(isWhite,'white','None')))
 
-p1<-ggplot(newDat)+geom_point(aes(x=RedPulp,y=WhitePulp,col=pulp))+scale_color_manual(values=cols)
+colData(pumap)[['pulp']]<-newVals$pulp
+colData(phumap)[['pulp']]<-newVals$pulp
 
-p2<-ggplot(newDat,aes(x=Xcoord,y=Ycoord,fill=pulp))+geom_raster()+scale_fill_manual(values=cols)
 
-res<-cowplot::plot_grid(p1,p2)
-res
-ggsave('fig2_assignedVals.pdf',res,width=12)
+
 ```
+
+## PTPN6 activity
+What is this protein doing with phosphosites - it's a tyrosine phosphotase, so therefore _remove_ phosphorylated tyrosone from residues. Therefore we can look for down-regulated pY sites in the data. However, only 2 pY sites exist:
+
+```{r pressure, echo=FALSE}
+library(ggplot2)
+
+pySites<- rownames(rowData(phumap)[grep('-Y',rowData(phumap)$Phosphosite),])
+
+res<-expToLongForm(phumap,'Phosphosite')|>
+  left_join(tibble::rownames_to_column(as.data.frame(colData(phumap)),'Voxel'))
+
+ps<-res|>
+  subset(Phosphosite%in%pySites)|>
+  ggplot(aes(x=Phosphosite,y=LogRatio,fill=pulp))+geom_boxplot()
+
+ps
+
+ggsave('phosphoTyrosine.pdf',ps)
+```
+We can't find any PTPN6 sites in the data.
+
+## CD immune proteins
+
+Now we can look at individual proteins as well. THose from the sorteddata include:
+
+- White pulp: CD44, CD1C, CD19, CD48, CD22, CD37, CD20, CD74
+- Red pulp: CD163,CD81, CD47, CD9, CD36, CD63, CD38, CD8A, CD4
+
+```{r calculate CD scores}
+wp<-c('CD44', 'CD1C', 'CD19', 'CD48', 'CD22', 'CD37', 'CD20', 'CD74')
+rp<-c('CD163','CD81', 'CD47', 'CD9', 'CD36', 'CD63', 'CD38', 'CD8A','CD4')
+op<-c('CD36','CD59')
+
+
+resProt<-expToLongForm(pumap,'Protein')|>
+  left_join(tibble::rownames_to_column(as.data.frame(colData(pumap)),'Voxel'))
+
+allmarkers<-resProt|>
+  subset(Protein%in%c(wp,rp,op))|>
+  ggplot(aes(x=Protein,y=LogRatio,fill=pulp))+geom_boxplot()+ggtitle('Immune markers')
+
+ggsave('allImmMarkers.pdf',allmarkers)
+
+##CD44 is also phosphorylatd
+cdp<-plotFeatureGrid(phumap,'CD44_S697','CD44_S697')
+
+cd<-plotFeatureGrid(pumap,'CD44','CD44')
+
+p<-cowplot::plot_grid(cdp,cd,nrow=1)
+
+p
+
+ggsave('cd44.pdf',p,width=12)
+```
+
+INterestingly there is evidence in CD44 activating PD1 signaling, but this is PDL1
+https://aacrjournals.org/cancerres/article/80/3/444/646081/CD44-Promotes-PD-L1-Expression-and-Its-Tumor
+  
+PD1 expression keeps CD44 active, regulation in check
+https://www.sciencedirect.com/science/article/pii/S2211124720308081
+  
+Can we find evidnece of this link in co-expression datasets?
+
+## CDC44 activation
+
+```{r cd44 activation}
+library(leapR)
+data('kinasesubstrates')##our latest db
+
+kins<-names(which(apply(kinasesubstrates$matrix,1,function(x) "CD44-S697"%in%x)))
+resProt|>
+  subset(Protein%in%kins)|>
+  ggplot(aes(x=Protein,y=LogRatio,fill=pulp))+geom_boxplot()+ggtitle('CD44 Kinases')
+
+psubs<-kinasesubstrates$matrix['PRKACA',]|>
+  stringr::str_replace('-','_')
+
+p_sub<-res|>
+  subset(Phosphosite%in%psubs)|>
+  ggplot(aes(x=Phosphosite,y=LogRatio,fill=pulp))+geom_boxplot()+ggtitle('PRKACA Substrates')+coord_flip()
+p_sub
+ggsave('prkaca_sub.pdf',p_sub,height=10)
+```
+Only one of the 5 that we know of (PRKACA,CAMK2A,ROCK2,TGFBR2) are expressed. higher in red pulp. 
 
 
 
