@@ -20,7 +20,10 @@ calcSigScore<-function(sce, sigProts,sigName){
   allpercs<-apply(exprs(sce),2,function(x) percent_rank(x))
   rownames(allpercs)<-rownames(exprs(sce))
   siggenes<-allpercs[intersect(rownames(allpercs),sigProts),]
-  sigScore=apply(siggenes,2,mean,na.rm=TRUE)
+  if(length(sigProts)==1)
+    sigScore<-siggenes
+  else
+    sigScore=apply(siggenes,2,mean,na.rm=TRUE)
   
   colData(sce)[[sigName]]<-sigScore
   sce
@@ -80,8 +83,11 @@ calcCorrelationWithScore<-function(sce,
 plotFeatureGrid<-function(sce,feats,featname){
   require(ggplot2)
   require(SingleCellExperiment)
+  feats<-intersect(feats,rownames(sce))
+  if(length(feats)==0)
+    return(NULL)
   
-  p<-calcSigScore(sce,feats,featname)%>%
+  p<-calcSigScore(sce,feats,featname)|>
     plotSigGrid(featname)
 
     return(p)
@@ -97,8 +103,9 @@ plotSigGrid<-function(sce,sigName){
   require(SingleCellExperiment)
 
   vars<-colData(sce)%>%
+    as_tibble()|>
     as.data.frame()%>%
-    dplyr::rename(signature=sigName)
+    dplyr::rename(signature=gsub('-','.',sigName))##i cant get rid of auto naming
   
   p<-ggplot(vars,aes(x=Xcoord,y=Ycoord,fill=signature))+
     geom_raster()+scale_fill_viridis_c()+
@@ -149,31 +156,31 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white'),feat=
 #' Builds network using SingleCellExpression object and values
 #' that were applied to the row data
 #' @import PCSF
-buildNetwork<-function(sce,featName,beta=.5,nrand=100){
+buildNetwork<-function(prot.vals,phos.vals,beta=.5,nrand=100,featName=''){
    require(dplyr)
   
   ##emtpy weight vectors
-  phos.vals<-c()
-  prot.vals<-c()
-  
-  if('Phosphosite'%in%names(rowData(sce))){
-    phos.vals<-rowData(sce)[,featName]
-    names(phos.vals)<-rowData(sce)[,'Phosphosite']
-    phos.vals<-phos.vals[which(phos.vals>0)]
-  }
-
-  if('Protein'%in%names(rowData(sce))){
-    prot.vals<-rowData(sce)[,featName]
-    names(prot.vals)<-rowData(sce)[,'Protein']
-    prot.vals<-prot.vals[which(prot.vals>0)]
-  }
-  
+  # phos.vals<-c()
+  # prot.vals<-c()
+  # 
+  # if('Phosphosite'%in%names(rowData(sce))){
+  #   phos.vals<-rowData(sce)[,featName]
+  #   names(phos.vals)<-rowData(sce)[,'Phosphosite']
+  #   phos.vals<-phos.vals[which(phos.vals>0)]
+  # }
+  # 
+  # if('Protein'%in%names(rowData(sce))){
+  #   prot.vals<-rowData(sce)[,featName]
+  #   names(prot.vals)<-rowData(sce)[,'Protein']
+  #   prot.vals<-prot.vals[which(prot.vals>0)]
+  # }
+  # 
   if(!require('PCSF')){
     remotes::install_github('sgosline/PCSF')
     require('PCSF')
   }
   data("STRING")
-  
+  allvals<-c()
   if(length(phos.vals)>0){
     #read kinase substrate database stored in data folder
     KSDB <- read.csv('PSP&NetworKIN_Kinase_Substrate_Dataset_July2016.csv',
@@ -190,7 +197,7 @@ buildNetwork<-function(sce,featName,beta=.5,nrand=100){
     adf<-apply(kdat,1,function(x)
       #for each substrate interaction, add a link from the kinase gene -> substreate -> substrate gene
       data.frame(from=c(x[['GENE']],x[['subval']]),to=c(x[['subval']],x[['SUB_GENE']]),
-                 cost=c(mval/2,mval/3)))%>%  ##arbitrary costs based on mean cost of edges around network
+                 cost=c(mval/2,mval/8)))%>%  ##arbitrary costs based on mean cost of edges around network
       do.call(rbind,.)
   }else{
     adf<-data.frame()
