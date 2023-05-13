@@ -259,9 +259,8 @@ fullnet<-buildNetwork(whiteweights,whitephos,beta=1,nrand=100,'sigPhosphoSites')
 
 plot.PCSF(fullnet$graph)
 
-
-whiteweights<-abs(asigPhos$logFC)
-names(whiteweights)<-asigPhos$featureID
+whiteweights<-abs(sigProts$logFC)
+names(whiteweights)<-sigProts$featureID
 
 ##add in phosphosites to PPI
 whitephos<-abs(asigPhos$logFC)
