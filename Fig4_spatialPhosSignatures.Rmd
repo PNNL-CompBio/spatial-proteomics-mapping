@@ -99,7 +99,7 @@ phosDiff<-spatialDiffEx(phumap,column='pulp',feat='X')|>
                 AveExpr='pulp.limma.AveExpr')|>
   mutate(Phosphosite=stringr::str_replace(featureID,'_','-'))
 
-sigPhos<-subset(phosDiff,adj.P.Val<0.01)|>subset(logFC>1)|>
+sigPhos<-subset(phosDiff,adj.P.Val<0.01)|>subset(logFC>0.5)|>
   arrange(logFC)
 
 pheatmap(as.matrix(exprs(phumap)[intersect(rownames(sigPhos),rownames(rowData(phumap))),]),
@@ -115,10 +115,10 @@ aphosDiff<-spatialDiffEx(adj.phumap,column='pulp',feat='X')|>
                 AveExpr='pulp.limma.AveExpr')|>
   mutate(Phosphosite=stringr::str_replace(featureID,'_','-'))
 
-asigPhos<-subset(phosDiff,adj.P.Val<0.01)|>subset(logFC>1)|>
+asigPhos<-subset(aphosDiff,adj.P.Val<0.01)|>subset(logFC>0.5)|>
   arrange(logFC)
 
-pheatmap(as.matrix(exprs(adj.phumap)[intersect(rownames(sigPhos),rownames(rowData(adj.phumap))),]),
+pheatmap(as.matrix(exprs(adj.phumap)[intersect(rownames(asigPhos),rownames(rowData(adj.phumap))),]),
          annotation_col = as.data.frame(colData(adj.phumap))[,c('row','pulp')],
          main='White pulp upregulated',cellheight = 10,filename='suppFullp0.05logfc1CorrectedwhitePhos.pdf')
 
@@ -149,7 +149,7 @@ sig.kin<-kin.enrich|>subset(pvalue<0.05)
 kin.enrich<-leapR::leapR(geneset=kinasesubstrates,
                          enrichment_method='enrichment_in_sets',
                          datamatrix=aphosDiff,
-                         id_column='Phosphosite',primary_columns='logFC',greaterthan=T,threshold=1)|>
+                         id_column='Phosphosite',primary_columns='logFC',greaterthan=T,threshold=.25)|>
     subset(ingroup_n>1)
 
 a.sig.kin<-kin.enrich|>subset(pvalue<0.05)
@@ -190,6 +190,7 @@ plotResult<-function(enrich_res){
 }
 
 kinplot<-plotResult(sig.kin)
+akinplot<-plotResult(a.sig.kin)
 
 ```
 

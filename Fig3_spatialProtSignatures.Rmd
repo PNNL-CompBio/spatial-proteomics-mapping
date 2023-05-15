@@ -47,6 +47,7 @@ downsig<-full%>%
 pumap<-calcSigScore(pumap,rownames(downsig),'RedPulp')%>%
   calcSigScore(rownames(upsig),'WhitePulp')
 
+print(paste('White pulp signature is',nrow(upsig),'proteins and red pulp is',nrow(downsig),'proteins'))
 
 ```
 ## Basic diffex and functional enrichment

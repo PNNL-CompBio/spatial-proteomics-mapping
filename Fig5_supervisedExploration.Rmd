@@ -17,6 +17,7 @@ library(dplyr)
 source('spleenDataFormatting.R')
 library(spammer)
 source('spatialProtUtils.R')
+
 ```
 
 The assignment of pulp type from the basic data was not robust. Here we will use the cell type signatures from the sorted data to label the voxels.
@@ -74,6 +75,22 @@ colData(pumap)[['pulp']]<-newVals$pulp
 colData(phumap)[['pulp']]<-newVals$pulp
 
 
+
+```
+
+## Plot deconvolution scores
+
+how do the deconvolution scores align?
+
+```{r plot deconv}
+
+annotes<-as_data_frame(colData(pumap))|>
+  dplyr::select(RedPulp,WhitePulp)|>
+  as.data.frame()
+
+rownames(annotes)<-rownames(colData(pumap))
+
+pheatmap(deconv,annotation_col = as.data.frame(annotes))
 
 ```
 

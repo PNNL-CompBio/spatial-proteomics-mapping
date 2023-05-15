@@ -80,11 +80,13 @@ library(pheatmap)
 
 pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
 
+pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature',filename='suppFigWhitePulpSorted.pdf')
 
 pheatmap(as.matrix(exprs(pumap)[intersect(rownames(upsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
 
 
 pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature',filename='suppFigREdPulpSorted.pdf')
 
 
 pheatmap(as.matrix(exprs(pumap)[intersect(rownames(downsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
