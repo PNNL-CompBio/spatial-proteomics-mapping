@@ -1,0 +1,278 @@
+---
+title: "Figure 3_4 histology enrichment"
+output: html_document
+author: Sara Gosline
+date: "2023-07-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(ggfortify)
+library(cowplot)
+#library(leapR)
+library(dplyr)
+
+source('spleenDataFormatting.R')
+#library(spammer)
+source('spatialProtUtils.R')
+```
+
+The assignment of pulp type from the basic data was not robust. Here we will use the cell type signatures from the sorted data to label the voxels.
+
+
+## Cell type signatures
+
+### using sorted cells
+Here we get the differential expression from the sorted cells, and try to map them to spatial
+
+```{r cell type signatures}
+
+
+##get fit values for diffex
+pumap<-scater::runPCA(spat.prot)
+
+phumap<-spat.phos%>%
+  scater::runPCA()
+
+pumap<-spatialDiffEx(pumap,column='Histology',vals=c('red','white'),'Protein')
+phumap<-spatialDiffEx(phumap,column='Histology',vals=c('red','white'),'X')
+
+```
+
+
+Now we have loaded the data and can do enrichment
+
+```{r prot enrich}
+library(leapR)
+library(org.Hs.eg.db)
+data('krbpaths')
+#map<-as.list(org.Hs.egSYMBOL2EG)ß
+#whitegenes<-lapply(rownames(whitesig),function(x) return(map[[x]][1]))
+#universe<-unlist(lapply(rownames(full),function(x) return(map[[x]][1])))
+
+full<-rowData(pumap)|>
+  as.data.frame()
+
+
+
+prot.enrich<-leapR::leapR(geneset=krbpaths,
+                         enrichment_method='enrichment_in_sets',id_column='Protein',
+                    datamatrix=full,primary_columns='Histology.limma.logFC',greaterthan=T,threshold=0.25)
+
+sig.enrich<-prot.enrich%>%
+  subset(pvalue<0.01)|>
+  arrange(pvalue)
+
+plotResult(sig.enrich)
+kr<-plotResult(sig.enrich)
+kr
+ggsave('fig3a_keggenrich.pdf',kr)
+gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
+
+go.enrich<-leapR::leapR(geneset=gosigs,
+                         enrichment_method='enrichment_in_sets',id_column='Protein',
+                    datamatrix=full,primary_columns='Histology.limma.logFC',greaterthan=T,threshold=0.2)|>
+  subset(ingroup_n>1)
+
+sig.go<-go.enrich%>%
+  subset(pvalue<0.01)|>
+  arrange(pvalue)
+
+gr<-plotResult(sig.go)
+gr
+
+ggsave('fig3b_goEnrich.pdf',gr)
+
+##plot GO Enrichment
+prots<-c('CR2','MS4A1')
+
+allfigs<-lapply(prots,function(x) plotFeatureGrid(pumap,x,x,'Histology'))
+##plot heterochromatin
+
+##plot snoRNA localizaton
+
+##plot CR2 and MS4A1 expression
+prot_plot=cowplot::plot_grid(plotlist=allfigs,labels=prots,ncol=1)
+prot_plot
+ggsave('fig3bd_protPlot.pdf',prot_plot)
+```
+```{r cell type}
+
+
+protDiff<- full|>
+  dplyr::select(featureID='Protein',
+                logFC='Histology.limma.logFC',
+                adj.P.Val='Histology.limma.adj.P.Val',
+                AveExpr='Histology.limma.AveExpr')
+####CAN we use MCP counter?
+mcptab<-read.table('mcp-genelist.txt',sep='\t',header=T,check.names = F)
+mcplist<-lapply(unique(mcptab$`Cell population`),function(x) 
+  paste(c(x,mcptab$`HUGO symbols`[which(mcptab$`Cell population`==x)]),sep='\t'))
+maxlength=max(sapply(mcplist,length))
+
+mcpmat<-do.call(rbind,
+                lapply(mcplist,function(x) paste(c(x,rep("",maxlength-length(x))),sep='\t')))
+mcp.gl=list(names=unique(mcptab$`Cell population`),desc="",sizes=sapply(mcplist,length),matrix=mcpmat)
+class(mcp.gl)<-c('geneset_data','list')
+
+mcp.enrich<-leapR::leapR(geneset=mcp.gl,enrichment_method='enrichment_in_sets',id_column='featureID',
+                        datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0)|>
+  subset(ingroup_n>1)
+
+print(mcp.enrich)
+
+###now try another matrix, LM22
+##LM22 is not unique so not great
+# lm22<-read.table('LM22.txt',sep='\t',header=T,check.names = F)|>
+#    tidyr::pivot_longer(cols=c(2:23),names_to='cellType',values_to='weight')
+# 
+# lm22=lm22|> group_by(`Gene symbol`)|>
+#    summarize(maxVal=max(weight),medVal=median(weight))|>
+#   right_join(lm22)
+# 
+# dlm22<-lm22|>
+#   mutate(overMed=weight<medVal,max=weight==maxVal)|>
+#   subset(max)
+# 
+# lmlist<-lapply(unique(dlm22$cellType),
+#                function(x) c(x,dlm22$`Gene symbol`[which(dlm22$cellType==x)]))
+# lmsize<-sapply(lmlist,length)
+# maxlength=max(lmsize)
+# 
+# lmmat<-do.call(rbind,
+#                 lapply(lmlist,function(x) paste(c(x,rep("",maxlength-length(x))),sep='\t')))
+# lm22.gl=list(names=unique(dlm22$cellType),desc="",sizes=sapply(lmlist,length),matrix=lmmat)
+# class(lm22.gl)<-c('geneset_data','list')
+# 
+# lm22.enrich<-leapR::leapR(geneset=lm22.gl,enrichment_method='enrichment_in_sets',id_column='featureID',
+#                         datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0)|>
+#   subset(ingroup_n>1)
+# 
+# print(lm22.enrich)
+
+```
+
+So we can find insignifincant enrichment in B celland T cells due to low coverage of markers. what if we just plot al markers?
+
+```{r immune markers}
+#now many are in the dataset!
+#dlm22<-dlm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
+rlm22<-lm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
+
+print(subset(rlm22,inProt)|>group_by(cellType)|>summarize(n()))
+##only 28 markers of the 547 are expressed in this dataset
+
+expLM22<-subset(rlm22,inProt)
+pheatmap(as.matrix(exprs(pumap)[intersect(expLM22$`Gene symbol`,rownames(rowData(pumap))),]),
+         clustering_distance_cols = 'correlation',clustering_distance_rows='correlation',
+         clustering_method = 'ward.D2',
+         annotation_col = as.data.frame(colData(pumap))[,c('Histology','TMT.set')],
+         main='White pulp upregulated',cellheight = 10,filename='fig3lm22Markers.pdf')
+
+#figs<-lapply(unique(expLM22$`cellType`),function(ctype){
+#  print(ctype)
+#  prots<-expLM22$`Gene symbol`[which(expLM22$`cellType`==ctype)]
+#  print(prots)
+#  plotFeatureGrid(pumap,prots,gsub(" ",'',ctype),'Histology')
+#})
+
+#imp<-cowplot::plot_grid(plotlist=figs,labels=unique(expLM22$`cellType`),nrow=2)
+
+#ggsave('fig3_lm22_mmuneMarkers.pdf',imp,width=12)
+###mcpcounter better?
+expMcp<-mcptab|>
+  mutate(inProt=`HUGO symbols`%in%rownames(exprs(pumap)))|>
+  subset(inProt)
+
+###11 out of 111 mcpcounter markers are present
+figs<-lapply(unique(expMcp$`Cell population`),function(ctype){
+  print(ctype)
+  prots<-expMcp$`HUGO symbols`[which(expMcp$`Cell population`==ctype)]
+  plotFeatureGrid(pumap,prots,gsub(" ",'',ctype),'Histology')
+})
+
+imp<-cowplot::plot_grid(plotlist=figs,labels=unique(expMcp$`Cell population`),nrow=2)
+ggsave('fig3_mcp_mmuneMarkers.pdf',imp,width=12)
+```
+
+The differential expression of the protein is not super significant
+
+```{r phos enrich}
+data('krbpaths')
+data('kinasesubstrates')
+
+phosDiff<-phumap|>rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='Histology.limma.logFC',
+                adj.P.Val='Histology.limma.adj.P.Val',
+                AveExpr='Histology.limma.AveExpr')|>
+  mutate(Phosphosite=stringr::str_replace(featureID,'_','-'))
+  
+pfDiff<-phosDiff|>
+  tidyr::separate(featureID,into=c('prot','psite'))|>
+  group_by(prot)|>
+  summarize(mlfc=mean(logFC),medLfc=median(logFC),meanp=log(mean(adj.P.Val))*-1)
+
+path.enrich<-leapR::leapR(geneset=krbpaths,
+                          enrichment_method='enrichment_in_sets',
+                          datamatrix=as.data.frame(pfDiff),
+                          id_column='prot',primary_columns='mlfc',greaterthan=T,threshold=.45)|>
+  subset(pvalue<0.05)
+
+plotResult(path.enrich)
+
+gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
+
+go.enrich<-leapR::leapR(geneset=gosigs,
+                         enrichment_method='enrichment_in_sets',id_column='prot',
+                    datamatrix=as.data.frame(pfDiff),primary_columns='mlfc',greaterthan=T,threshold=0.45)|>
+  subset(ingroup_n>1)|>
+  subset(pvalue<0.05)
+
+plotResult(go.enrich)
+
+kin.enrich<-leapR::leapR(geneset=kinasesubstrates,
+                         enrichment_method='enrichment_in_sets',
+                         datamatrix=phosDiff,
+                         id_column='Phosphosite',primary_columns='logFC',greaterthan=T,threshold=.45)|>
+    subset(ingroup_n>1)|>
+  subset(pvalue<0.05)
+
+kin<-plotResult(kin.enrich)
+kin
+ggsave('fig4a_kinaseEnrichment.pdf',kin)
+
+csnk2a1<-stringr::str_split(kin.enrich['CSNK2A1','ingroupnames'],', ')|>unlist()
+
+p1<-lapply(csnk2a1,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x,'Histology'))
+p1<-cowplot::plot_grid(plotlist=p1,nrow=4,labels=csnk2a1)
+ggsave('fig4b_sigSubs.pdf',p1,width=12)
+
+```
+
+
+
+### Plot in image
+
+Lastly we want to plot a set of scores, in this case the signature scores, in an image. 
+
+
+```{r plot image}
+
+
+ p <- plotSigGrid(pumap,'RedPulp')
+ p1<-plotSigGrid(pumap,'WhitePulp')
+    
+
+ pc<-cowplot::plot_grid(p,p1)
+ pc
+ ggsave('fig2_scoredImage.pdf',pc,width=14,height=4)
+```
+
+Now that we have a rank score, we can "call" each voxel. 
+
+
+

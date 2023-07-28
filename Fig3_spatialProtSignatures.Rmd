@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 source("spleenDataFormatting.R")
 source('spatialProtUtils.R')
 library(pheatmap)
+library(PCSF)
 ```
 
 ## First collect and annotate voxels by signature
@@ -55,7 +56,7 @@ print(paste('White pulp signature is',nrow(upsig),'proteins and red pulp is',nro
 Based on annotated voxels, let's compute differentially expressed proteins and phosphosites and store in table. 
 
 
-```{r fdifferential expression}
+```{r differential expression}
 
 newVals<-colData(pumap)%>%
   as.data.frame()%>%
@@ -75,6 +76,7 @@ protDiff<-spatialDiffEx(pumap,column='pulp',feat='Protein')|>
 sigProts<-subset(protDiff,adj.P.Val<0.05)|>subset(logFC>.5)|>
   arrange(logFC)
 
+write.table(protDiff,file='proteomicsDiffExWhitevsRed.csv',sep=',',row.names=F)
 
 
 pheatmap(as.matrix(exprs(pumap)[intersect(rownames(sigProts),rownames(rowData(pumap))),]),
@@ -98,14 +100,58 @@ pheatmap(as.matrix(exprs(pumap)[intersect(allprots,rownames(rowData(pumap))),]),
 
 ## Now we can look for biological pathways
 
-```{r enrichment}
+```{r standard enrichment}
 library(leapR)
 library(org.Hs.eg.db)
 data('krbpaths')
-data('kinasesubstrates')
-map<-as.list(org.Hs.egSYMBOL2EG)
-gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
 
+
+####CAN we use MCP counter?
+mcptab<-read.table('mcp-genelist.txt',sep='\t',header=T,check.names = F)
+mcplist<-lapply(unique(mcptab$`Cell population`),function(x) 
+  paste(c(x,mcptab$`HUGO symbols`[which(mcptab$`Cell population`==x)]),sep='\t'))
+maxlength=max(sapply(mcplist,length))
+
+mcpmat<-do.call(rbind,
+                lapply(mcplist,function(x) paste(c(x,rep("",maxlength-length(x))),sep='\t')))
+mcp.gl=list(names=unique(mcptab$`Cell population`),desc="",sizes=sapply(mcplist,length),matrix=mcpmat)
+class(mcp.gl)<-c('geneset_data','list')
+
+mcp.enrich<-leapR::leapR(geneset=mcp.gl,enrichment_method='enrichment_in_sets',id_column='featureID',
+                        datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0.5)|>
+  subset(ingroup_n>1)
+
+print(mcp.enrich)
+
+###now try another matrix, LM22
+lm22<-read.table('LM22.txt',sep='\t',header=T,check.names = F)|>
+   tidyr::pivot_longer(cols=c(2:23),names_to='cellType',values_to='weight')
+
+lm22=lm22|> group_by(`Gene symbol`)|>
+   summarize(maxVal=max(weight),medVal=median(weight))|>
+  right_join(lm22)
+
+dlm22<-lm22|>
+  mutate(overMed=weight<medVal,max=weight==maxVal)|>
+  subset(max)
+
+lmlist<-lapply(unique(dlm22$cellType),
+               function(x) c(x,dlm22$`Gene symbol`[which(dlm22$cellType==x)]))
+lmsize<-sapply(lmlist,length)
+maxlength=max(lmsize)
+
+lmmat<-do.call(rbind,
+                lapply(lmlist,function(x) paste(c(x,rep("",maxlength-length(x))),sep='\t')))
+lm22.gl=list(names=unique(dlm22$cellType),desc="",sizes=sapply(lmlist,length),matrix=lmmat)
+class(lm22.gl)<-c('geneset_data','list')
+
+lm22.enrich<-leapR::leapR(geneset=lm22.gl,enrichment_method='enrichment_in_sets',id_column='featureID',
+                        datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0)|>
+  subset(ingroup_n>1)
+
+print(lm22.enrich)
+
+##what does KEGG say?
 prot.enrich<-leapR::leapR(geneset=krbpaths,
                          enrichment_method='enrichment_in_sets',id_column='featureID',
                     datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0.5)|>
@@ -114,15 +160,21 @@ prot.enrich<-leapR::leapR(geneset=krbpaths,
 sig.enrich<-prot.enrich%>%
   subset(BH_pvalue<0.05)
 
-go.enrich<-leapR::leapR(geneset=gosigs,
-                         enrichment_method='enrichment_in_sets',id_column='featureID',
-                    datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0.5)|>
-  subset(ingroup_n>1)
+print(sig.enrich)
+
+##how about GO?
+
+map<-as.list(org.Hs.egSYMBOL2EG)
+  gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
+  
+  go.enrich<-leapR::leapR(geneset=gosigs,
+                           enrichment_method='enrichment_in_sets',id_column='featureID',
+                      datamatrix=protDiff,primary_columns='logFC',greaterthan=T,threshold=0.5)|>
+    subset(ingroup_n>1)
 
 sig.go<-go.enrich%>%
   subset(BH_pvalue<0.05)
-
-
+print(sig.go)
 
 
 ##figure out what to do with this?
@@ -173,17 +225,59 @@ There are four genes in thePD1 signaling pathway, let's plot those
 prots<-sig.enrich['REACTOME_PD1_SIGNALING','ingroupnames']|>
   stringr::str_split(', ')|>
   unlist()
+allfigs<-lapply(prots,function(x) plotFeatureGrid(pumap,x,x,'pulp'))
 
-allfigs<-lapply(prots,function(x) plotFeatureGrid(pumap,x,x))
-
-gp<-cowplot::plot_grid(plotlist=allfigs,ncol=2)
+gp<-cowplot::plot_grid(plotlist=allfigs,ncol=2,labels=prots)
 gp
 
-ggsave('pd1Signaling.pdf',gp,width=11,height=8)
+ggsave('pd1Signaling.pdf',gp,width=12,height=8)
+
+prots<-sig.enrich['REACTOME_TRANSLOCATION_OF_ZAP70_TO_IMMUNOLOGICAL_SYNAPSE','ingroupnames']|>
+  stringr::str_split(', ')|>
+  unlist()
+allfigs<-lapply(prots,function(x) plotFeatureGrid(pumap,x,x,'pulp'))
+
+gp<-cowplot::plot_grid(plotlist=allfigs,ncol=2,labels=prots)
+gp
+
+ggsave('zap700Transloc.pdf',gp,width=12,height=8)
 
 ```
 
+## cell type specific expression
 
+The only real enrichment in cell types was in B cells/naive b cells, which makes sense but there is no other.
+```{r cell types}
+
+##now many are in the dataset!
+dlm22<-dlm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
+rlm22<-lm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
+
+print(subset(rlm22,inProt)|>group_by(cellType)|>summarize(n()))
+##only 28 markers of the 547 are expressed in this dataset
+
+expLM22<-subset(rlm22,inProt)
+pheatmap(as.matrix(exprs(pumap)[intersect(expLM22$`Gene symbol`,rownames(rowData(pumap))),]),
+         clustering_distance_cols = 'correlation',clustering_distance_rows='correlation',
+         clustering_method = 'ward.D2',
+         annotation_col = as.data.frame(colData(pumap))[,c('WhitePulp','pulp')],
+         main='White pulp upregulated',cellheight = 10,filename='fig3lm22Markers.pdf')
+
+###mcpcounter better?
+expMcp<-mcptab|>
+  mutate(inProt=`HUGO symbols`%in%rownames(exprs(pumap)))|>
+  subset(inProt)
+
+###11 out of 111 mcpcounter markers are present
+figs<-lapply(unique(expMcp$`Cell population`),function(ctype){
+  print(ctype)
+  prots<-expMcp$`HUGO symbols`[which(expMcp$`Cell population`==ctype)]
+  plotFeatureGrid(pumap,prots,gsub(" ",'',ctype),'pulp')
+})
+
+imp<-cowplot::plot_grid(plotlist=figs,labels=unique(expMcp$`Cell population`),nrow=2)
+ggsave('fig3_immuneCells.pdf',imp,width=12)
+```
 
 ## Networks show what we are missing with enrichment - mechanism? 
 
@@ -198,14 +292,49 @@ ppi<-construct_interactome(STRING)
 whiteweights<-abs(sigProts$logFC)
 names(whiteweights)<-sigProts$featureID
 
-white.net<-buildNetwork(whiteweights,phos.vals=c(),beta=2,nrand=100,featName='whitePulpDiffex')
+whiteprots<-protDiff$logFC
+names(whiteprots)<-protDiff$featureID
+#white.net<-buildNetwork(sig.prot.vals=whiteweights,all.prot.vals=whiteprots,sig.phos.vals=c(),
+            #            beta=2,nrand=500,featName='whitePulpDiffex')
 
-plot.PCSF(white.net$graph)
+#wgraph=white.net$graph
+wgraph=igraph::read_graph('whitePulpDiffexnetwork.gml',format='gml')
+plot.PCSF(wgraph)
 
-
-
+nodes<-as_data_frame(wgraph,'vertices')
+print(paste('built network with',length(nodes),'nodes'))
 ```
-CD22 and CD19 are note measured, but implicated in the network. can we stain for them?
+CD4, CD72, CD209, CD19 are note measured, but implicated in the network. let's see how they are in bulk
 
 
+```{r bulk conf}
+
+prots<-intersect(rownames(nodes),rownames(exprs(fullmap)))
+
+pheatmap(exprs(fullmap)[prots,],annotation_row = nodes[,c('type','nodeType')],
+         annotation_col=as.data.frame(colData(fullmap)),cellwidth = 10,
+         cellheight=10,filename='validationHeamap.pdf')
+
+spres<-expToLongForm(pumap,rowname='name')|>
+  dplyr::rename(Patient='Voxel')|>
+  left_join(tibble::rownames_to_column(as.data.frame(colData(pumap)),'Patient'))|>
+  left_join(nodes)|>
+  subset(!is.na(type))
+
+spatex<-ggplot(spres,aes(x=type,y=LogRatio,fill=pulp))+geom_boxplot()+scale_fill_viridis_d()
+
+##now make into 
+res<-expToLongForm(fullmap,rowname='name')|>
+  dplyr::rename(Patient='Voxel')|>
+  left_join(tibble::rownames_to_column(as.data.frame(colData(fullmap)),'Patient'))|>
+  left_join(nodes)|>
+  subset(!is.na(type))
+
+insorted<-ggplot(res,aes(x=type,y=LogRatio,fill=pulpAnnotation))+geom_boxplot()+scale_fill_viridis_d()
+
+
+p<-cowplot::plot_grid(plotlist=list(spatex,insorted),labels=c('Spatial','Sorted'),nrow=2)
+p
+
+ggsave('expressionValidation.pdf',p)
 ```

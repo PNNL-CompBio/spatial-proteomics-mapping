@@ -88,7 +88,7 @@ annotes<-as_data_frame(colData(pumap))|>
   dplyr::select(RedPulp,WhitePulp)|>
   as.data.frame()
 
-rownames(annotes)<-rownames(colData(pumap))
+#rownames(annotes)<-rownames(colData(pumap))
 
 pheatmap(deconv,annotation_col = as.data.frame(annotes))
 
@@ -119,16 +119,20 @@ We can't find any PTPN6 sites in the data.
 
 Now we can look at individual proteins as well. THose from the sorteddata include:
 
-- White pulp: CD44, CD1C, CD19, CD48, CD22, CD37, CD20, CD74
+- White pulp: CD44, CD1C, CD19, CD48, CD22, CD37, CD20 (MS4A1), CD74
 - Red pulp: CD163,CD81, CD47, CD9, CD36, CD63, CD38, CD8A, CD4
 
 ```{r calculate CD scores}
-wp<-c('CD44', 'CD1C', 'CD19', 'CD48', 'CD22', 'CD37', 'CD20', 'CD74')
+wp<-c('CD44', 'CD1C', 'CD19', 'CD48', 'CD22', 'CD37', 'MS4A1', 'CD74')
 rp<-c('CD163','CD81', 'CD47', 'CD9', 'CD36', 'CD63', 'CD38', 'CD8A','CD4')
 op<-c('CD36','CD59')
 
 
 resProt<-expToLongForm(pumap,'Protein')|>
+  left_join(tibble::rownames_to_column(as.data.frame(colData(pumap)),'Voxel'))
+
+
+resPhos<-expToLongForm(phumap,'Protein')|>
   left_join(tibble::rownames_to_column(as.data.frame(colData(pumap)),'Voxel'))
 
 allmarkers<-resProt|>
@@ -142,11 +146,13 @@ cdp<-plotFeatureGrid(phumap,'CD44_S697','CD44_S697')
 
 cd<-plotFeatureGrid(pumap,'CD44','CD44')
 
-p<-cowplot::plot_grid(cdp,cd,nrow=1)
+dd<-plotFeatureGrid(adj.phumap,'CD44_S697','CD44_S697')
+
+p<-cowplot::plot_grid(cdp,cd,dd,ncol=1)
 
 p
 
-ggsave('cd44.pdf',p,width=12)
+ggsave('cd44.pdf',p,width=12,height=20)
 ```
 
 INterestingly there is evidence in CD44 activating PD1 signaling, but this is PDL1

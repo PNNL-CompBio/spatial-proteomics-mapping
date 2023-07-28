@@ -77,6 +77,7 @@ newVals<-colData(pumap)%>%
 
 colData(pumap)[['pulp']]<-newVals$pulp
 colData(phumap)[['pulp']]<-newVals$pulp
+
 colData(adj.phumap)[['pulp']]<-newVals$pulp
 
 protDiff<-spatialDiffEx(pumap,column='pulp',feat='Protein')|>
@@ -87,7 +88,7 @@ protDiff<-spatialDiffEx(pumap,column='pulp',feat='Protein')|>
                 adj.P.Val='pulp.limma.adj.P.Val',
                 AveExpr='pulp.limma.AveExpr')
 
-sigProts<-subset(protDiff,adj.P.Val<0.05)|>subset(logFC>.5)|>
+sigProts<-subset(protDiff,adj.P.Val<0.05)|>subset(logFC>0.5)|>
   arrange(logFC)
 
 phosDiff<-spatialDiffEx(phumap,column='pulp',feat='X')|>
@@ -99,7 +100,7 @@ phosDiff<-spatialDiffEx(phumap,column='pulp',feat='X')|>
                 AveExpr='pulp.limma.AveExpr')|>
   mutate(Phosphosite=stringr::str_replace(featureID,'_','-'))
 
-sigPhos<-subset(phosDiff,adj.P.Val<0.01)|>subset(logFC>0.5)|>
+sigPhos<-subset(phosDiff,adj.P.Val<0.05)|>subset(logFC>1)|>
   arrange(logFC)
 
 pheatmap(as.matrix(exprs(phumap)[intersect(rownames(sigPhos),rownames(rowData(phumap))),]),
@@ -138,6 +139,23 @@ data('krbpaths')
 data('kinasesubstrates')
 
 
+pfDiff<-phosDiff|>
+  tidyr::separate(featureID,into=c('prot','psite'))|>
+  group_by(prot)|>
+  summarize(mlfc=mean(logFC),medLfc=median(logFC),meanp=log(mean(adj.P.Val))*-1)
+
+path.enrich<-leapR::leapR(geneset=krbpaths,
+                          enrichment_method='enrichment_in_sets',
+                          datamatrix=as.data.frame(pfDiff),
+                          id_column='prot',primary_columns='mlfc',greaterthan=T,threshold=.2)
+
+gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
+
+go.enrich<-leapR::leapR(geneset=gosigs,
+                         enrichment_method='enrichment_in_sets',id_column='prot',
+                    datamatrix=as.data.frame(pfDiff),primary_columns='mlfc',greaterthan=T,threshold=0.2)|>
+  subset(ingroup_n>1)
+
 kin.enrich<-leapR::leapR(geneset=kinasesubstrates,
                          enrichment_method='enrichment_in_sets',
                          datamatrix=phosDiff,
@@ -159,7 +177,20 @@ a.sig.kin<-kin.enrich|>subset(pvalue<0.05)
 ##figure out what to do with this?
 ```
 
-however, there are no significantly enriched kinases.
+
+
+<!-- ```{r enrichR} -->
+<!-- library(enrichR) -->
+<!-- setEnrichrSite("Enrichr") # Human genes    -->
+
+<!-- dbs <- listEnrichrDbs() -->
+
+<!-- dbs<-dbs[grep('inase',dbs$libraryName),'libraryName'] -->
+
+<!-- enriched <- enrichr(phosDiff$Phosphosite, dbs) -->
+
+
+<!-- ``` -->
 
 ## Plot enrichment
 
@@ -191,6 +222,8 @@ plotResult<-function(enrich_res){
 
 kinplot<-plotResult(sig.kin)
 akinplot<-plotResult(a.sig.kin)
+kinplot
+
 
 ```
 
@@ -205,11 +238,12 @@ We do not see a lot of coherent kinase activity, but there is some, we can inves
 kinplot
 
 ggsave('uncorrectedkinaseEnrichment.pdf',kinplot)
-
+ggsave('correctedKinaseEnrichment.pdf',akinplot)
 
 csnk2a1<-stringr::str_split(sig.kin['CSNK2A1','ingroupnames'],', ')|>unlist()
 
 csnk2a2<-stringr::str_split(sig.kin['CSNK2A2','ingroupnames'],', ')|>unlist()
+cdk1<-stringr::str_split(a.sig.kin['CDK1','ingroupnames'],', ')|>unlist()
 
 p1<-lapply(csnk2a1,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x))
 
@@ -218,26 +252,17 @@ gp1
 ggsave('csnk2a1Subs.pdf',gp1,height=12,width=12)
 p2<-lapply(csnk2a2,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x))
 
-gp2<-cowplot::plot_grid(plotlist=p2,ncol=2)
+gp2<-cowplot::plot_grid(plotlist=p2,ncol=2,labels=names(c))
 gp2
-
 ggsave('csnk2a2Subs.pdf',gp2,height=6,width=8)
 
+p3<-lapply(cdk1,function(x) plotFeatureGrid(adj.phumap,gsub('-','_',x),x))
+gp3<-cowplot::plot_grid(plotlist=p3,ncol=2)
+gp3
 
-##what do they look like in normalized data?
-p1<-lapply(csnk2a1,function(x) plotFeatureGrid(adj.phumap,gsub('-','_',x),x))
-nulls<-which(unlist(lapply(p1,function(x) !is.null(x))))
-p1<-p1[nulls]
-gp1<-cowplot::plot_grid(plotlist=p1,ncol=3)
-gp1
-ggsave('adj.csnk2a1Subs.pdf',gp1,height=12,width=12)
-p2<-lapply(csnk2a2,function(x) plotFeatureGrid(adj.phumap,gsub('-','_',x),x))
-nulls<-which(unlist(lapply(p2,function(x) !is.null(x))))
-p2<-p2[nulls]
-gp2<-cowplot::plot_grid(plotlist=p2,ncol=2)
-gp2
+ggsave('cd1ksubsAdjuseted.pdf',gp2,height=6,width=8)
 
-ggsave('adj.csnk2a2Subs.pdf',gp2,height=6,width=8)
+
 
 ```
 
@@ -252,28 +277,33 @@ library(PCSF)
 whiteweights<-abs(sigProts$logFC)
 names(whiteweights)<-sigProts$featureID
 
-##add in phosphosites to PPI
-whitephos<-abs(sigPhos$logFC)
-names(whitephos)<-sigPhos$Phosphosite
-
-fullnet<-buildNetwork(whiteweights,whitephos,beta=1,nrand=100,'sigPhosphoSites')
-
-plot.PCSF(fullnet$graph)
-
-whiteweights<-abs(sigProts$logFC)
-names(whiteweights)<-sigProts$featureID
+whiteprots<-protDiff$logFC
+names(whiteprots)<-protDiff$featureID
 
 ##add in phosphosites to PPI
-whitephos<-abs(asigPhos$logFC)
-names(whitephos)<-asigPhos$Phosphosite
+whitephosweights<-abs(sigPhos$logFC)
+names(whitephosweights)<-sigPhos$Phosphosite
 
-fullnet<-buildNetwork(whiteweights,whitephos,beta=1,nrand=100,'sigCorrectedPhosphoSites')
+
+whitephos<-phosDiff$logFC
+names(whitephos)<-phosDiff$Phosphosite
+
 
 plot.PCSF(fullnet$graph)
 
 
 ```
-CD22 and CD19 are note measured, but implicated in the network. can we stain for them?
 
+What can we do with the results? Maybe zoom in on SRRM1/2 phosphorylation?
+
+
+```{r srrm1/2 phosphorylation}
+
+nodes<-names(V(fullnet$graph))
+srrm<-nodes[grep("SRRM",nodes)]
+
+plots<-lapply(srrm,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x,'pulp'))
+
+cowplot::plot_grid(plotlist=plots,ncol=2)
 
 ```

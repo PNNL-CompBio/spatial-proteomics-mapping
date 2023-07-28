@@ -27,12 +27,13 @@ spleen.meta<-data.frame(Sample=c('sample.09','sample.10','sample.11','sample.12'
   mutate(source='Sorted')
 
 md.file<-'../../Projects/HubMap/spleen/voxelMetadata.xlsx'
+new.md.file<-'../../Projects/HubMap/spleen/2d manuscript/Voxel_metadata_histology.xlsx'
 prot.file<-'../../Projects/HubMap/spleen/AfterBatchCorrection_global.txt'
 phos.file<-'../../Projects/HubMap/spleen/Phospho_70percValidvalues.txt'
 
 
 loadMetadata<-function(){
-  tab<-readxl::read_xlsx(md.file)
+  tab<-readxl::read_xlsx(new.md.file)
   return(tab) 
 }
 
@@ -73,7 +74,7 @@ counts<-prot%>%
   as.matrix()
 
 colData <- prot%>%
-  dplyr::select(`Voxel Number`,Xcoord,Ycoord,pulpAnnotation,`TMT set`)%>%
+  dplyr::select(`Voxel Number`,Xcoord,Ycoord,pulpAnnotation,`TMT set`,Histology)%>%
   mutate(col=as.numeric(Xcoord),row=as.numeric(Ycoord))%>%
   distinct()%>%
   subset(!is.na(`Voxel Number`))%>%

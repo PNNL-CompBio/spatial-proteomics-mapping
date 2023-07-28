@@ -33,13 +33,27 @@ calcSigScore<-function(sce, sigProts,sigName){
 
 #' expToLongForm: helper function that moves expression
 #' matrix to long form
-expToLongForm<-function(sce,rowname='prot'){
+expToLongForm<-function(sce,rowname='prot',spotAnnotes=c()){
   
-  exprs(sce)%>%
+  res<-exprs(sce)%>%
     as.matrix()%>%
     as.data.frame()%>%
     tibble::rownames_to_column(rowname)%>%
-    tidyr::pivot_longer(c(2:(1+ncol(exprs(spat.phos)))),names_to='Voxel',values_to='LogRatio')
+    tidyr::pivot_longer(c(2:(1+ncol(exprs(sce)))),names_to='Voxel',values_to='LogRatio')
+  
+  if(length(spotAnnotes)>0){
+    cd<-colData(sce)|>
+      as.data.frame()|>
+      tibble::rownames_to_column('Voxel')|>
+      dplyr::select(c('Voxel',spotAnnotes))
+    res<-res|>
+      left_join(cd)
+  }
+  res<-subset(res,Voxel!='NA')
+  
+  return(res)
+  
+    
 }
 
 #' calcCorrelationWithScore: calculates the correlation of each
@@ -80,25 +94,48 @@ calcCorrelationWithScore<-function(sce,
 #' @param sce
 #' @param features 
 #' 
-plotFeatureGrid<-function(sce,feats,featname){
+plotFeatureGrid<-function(sce,feats,featname,...){
   require(ggplot2)
   require(SingleCellExperiment)
+  
   feats<-intersect(feats,rownames(sce))
   if(length(feats)==0)
     return(NULL)
   
   p<-calcSigScore(sce,feats,featname)|>
-    plotSigGrid(featname)
+    plotSigGrid(featname,...)
 
     return(p)
 }
 
+#' plotAnnotationGrid: plots a categorical variable on the grid
+#' @param sce
+#' @param features 
+#' 
+plotAnnotationGrid<-function(sce,annotation,color_list){
+  require(ggplot2)
+  require(SingleCellExperiment)
+  
+  ##get the variables
+  vars<-colData(sce)%>%
+    as_tibble()|>
+    as.data.frame()%>%
+    dplyr::rename(signature=gsub('-','.',annotation))##i cant get rid of auto naming
+  
+  p<-ggplot(vars,aes(x=Xcoord,y=Ycoord,fill=signature))+
+    geom_raster()+scale_fill_manual(values=color_list)+
+  theme_bw()+
+    ggtitle(paste0(annotation,' annotation'))
+  
+  return(p)
+  
+}
 
 #'plotSigGrid: plots a numeric value using the Xcoord and Ycoord columns
 #'takes a numeric score from the colDAta
 #'@param sce SingleCellExperiment
 #'
-plotSigGrid<-function(sce,sigName){
+plotSigGrid<-function(sce,sigName,disFeature){
   require(ggplot2)
   require(SingleCellExperiment)
 
@@ -107,11 +144,17 @@ plotSigGrid<-function(sce,sigName){
     as.data.frame()%>%
     dplyr::rename(signature=gsub('-','.',sigName))##i cant get rid of auto naming
   
+  if(!missing(disFeature))
+    vars<-vars|>
+    dplyr::rename(feat=disFeature)
+  
   p<-ggplot(vars,aes(x=Xcoord,y=Ycoord,fill=signature))+
-    geom_raster()+scale_fill_viridis_c()+
+    geom_raster()+scale_fill_gradient(low='lightgrey',high='goldenrod')
     theme_bw()+
     ggtitle(paste0(sigName,' signature'))
   
+  if(!missing(disFeature))
+    p<-p+geom_point(aes(shape=feat,alpha=0.5),size=1)
   return(p)
 }
 
@@ -131,8 +174,14 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white'),feat=
   }
   
   fac <- factor(rep(c(2,1),c(length(samp2), length(samp1))))
-  #print(fac)
-  design <- model.matrix(~fac)
+  if('TMT set'%in%colnames(colData(sce))){
+    tmt<-factor(colData(sce)[c(samp2,samp1),'TMT set'])
+    #print(fac)
+    design <- model.matrix(~fac)#+tmt)
+  }
+  else{
+    design <- model.matrix(~fac)
+  }
   #print(design)
   fit <- lmFit(exprs(sce)[,c(samp2,samp1)], design)
   fit <- eBayes(fit)
@@ -143,6 +192,7 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white'),feat=
   colnames(res)<-paste(paste(column,'limma'),colnames(res))
   res<-res%>%
     tibble::rownames_to_column(feat)
+  
   rd<-rowData(sce)%>%
     as.data.frame()%>%
     full_join(res)
@@ -153,10 +203,15 @@ spatialDiffEx<-function(sce,column='pulpAnnotation', vals=c('red','white'),feat=
 
 
 #' buildnetwork
-#' Builds network using SingleCellExpression object and values
+#' In the future we will build a network using the spatialExpression object, but
+#' for now we just take mean values of proteins nad phosphosites
 #' that were applied to the row data
 #' @import PCSF
-buildNetwork<-function(prot.vals,phos.vals,beta=.5,nrand=100,featName=''){
+buildNetwork<-function(sig.prot.vals=c(),
+                       sig.phos.vals=c(),
+                       all.prot.vals=c(),
+                       all.phos.vals=c(),
+                       beta=.5,nrand=100,featName=''){
    require(dplyr)
   
   ##emtpy weight vectors
@@ -181,7 +236,7 @@ buildNetwork<-function(prot.vals,phos.vals,beta=.5,nrand=100,featName=''){
   }
   data("STRING")
   allvals<-c()
-  if(length(phos.vals)>0){
+  if(length(sig.phos.vals)>0){
     #read kinase substrate database stored in data folder
     KSDB <- read.csv('PSP&NetworKIN_Kinase_Substrate_Dataset_July2016.csv',
                                   stringsAsFactors = FALSE)
@@ -207,17 +262,18 @@ buildNetwork<-function(prot.vals,phos.vals,beta=.5,nrand=100,featName=''){
   ppi <- construct_interactome(rbind(STRING,adf))
   
   ##now run the code
-  terms=c(phos.vals,prot.vals)
+  weights=c(sig.phos.vals,sig.prot.vals)
+  allvals=c(all.prot.vals,all.phos.vals)
   #print(terms)
   subnet<-NULL
   try(
-    subnet <- PCSF_rand(ppi,abs(terms), n=nrand, r=0.2,w = 4, b = beta, mu = 0.0005)
+    subnet <- PCSF_rand(ppi,abs(weights), n=nrand, r=0.2,w = 10, b = beta, mu = 0.0001)
   )
   
   if(is.null(subnet))
     return("")
   
-  lfcs<-terms[match(names(V(subnet)),names(terms))]
+  lfcs<-allvals[match(names(V(subnet)),names(allvals))]
   lfcs[is.na(lfcs)]<-0.0
   
   ##assign proteins first
@@ -226,7 +282,7 @@ buildNetwork<-function(prot.vals,phos.vals,beta=.5,nrand=100,featName=''){
   names(types)<-names(V(subnet))
   
   ##then assign phosphosites
-  types[intersect(names(V(subnet)),allvals)]<-'phosphosite'
+  types[intersect(names(V(subnet)),names(all.phos.vals))]<-'phosphosite'
   
  
   subnet<-igraph::set.vertex.attribute(subnet,'logFoldChange',value=lfcs)
@@ -272,5 +328,28 @@ adjustPhophoWithGlobal<-function(phos.obj,prot.obj){
   new.phos
   
   
+}
+
+
+plotResult<-function(enrich_res){
+  ###the columns dpeendon the output a bit
+  library(ggplot2)
+  
+  odds<-enrich_res|>
+    arrange(desc(oddsratio))
+  
+  ##get the top 20
+  odds<-odds[1:min(20,nrow(enrich_res)),]|>
+    tibble::rownames_to_column('Pathway')|>
+    mutate(logPval=(-1*log10(pvalue)))
+  
+  odds$Pathway<-factor(odds$Pathway,levels=rev(odds$Pathway))
+  
+  ##plot
+  res<-ggplot(odds,aes(x=Pathway,y=oddsratio,fill=logPval))+
+    geom_bar(stat='identity')+
+    coord_flip()
+  
+  res
 }
 

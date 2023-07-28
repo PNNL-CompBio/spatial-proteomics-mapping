@@ -24,10 +24,12 @@ The assignment of pulp type from the basic data was not robust. Here we will use
 
 ## Cell type signatures
 
-Here we get the differential expression from the sorted cells.
+### using sorted cells
+Here we get the differential expression from the sorted cells, and try to map them to spatial
 
 ```{r cell type signatures}
 
+##first let's plot the labels
 
 ##get fit values for diffex
 pumap<-scater::runPCA(spat.prot)
@@ -35,8 +37,11 @@ pumap<-scater::runPCA(spat.prot)
 phumap<-spat.phos%>%
   scater::runPCA()
 
-fullmap<-scater::runPCA(global.sorted)
+annote_plot<-plotAnnotationGrid(pumap,annotation='Histology',color_list=list(red='darkred',white='lightgrey',mixed='skyblue'))
+ggsave('fig2a_annotatedImage.pdf',annote_plot,width=12)
 
+##here we take the sorted data and do differential expression on the data
+fullmap<-scater::runPCA(global.sorted)
 fullmap<-spatialDiffEx(fullmap)
 
 full<- fullmap%>%
@@ -46,58 +51,184 @@ full<- fullmap%>%
                 logFC='pulpAnnotation.limma.logFC',
                 adj.P.Val='pulpAnnotation.limma.adj.P.Val',
                 AveExpr='pulpAnnotation.limma.AveExpr')
-
+##white pulp genes in sorted
 upsig<-full%>%
   subset(adj.P.Val<0.01)%>%
   subset(logFC>1)|>  subset(AveExpr>(1))
-
-
+##red pulp genes in sorted
 downsig<-full%>%
   subset(adj.P.Val<0.01)%>%
   subset(logFC<(-1))|>
     subset(AveExpr>(1))
 
 
-print(paste0('we now have a white pulp signature of ',nrow(upsig)))
-print(paste0('we now have a red pulp signature of ',nrow(downsig)))
+print(paste0('From the bulk data, we now have a white pulp signature of ',nrow(upsig)))
+print(paste0('...and a red pulp signature of ',nrow(downsig)))
 
 
 
-###write signature genes tot able
+###we dont need these anymore
 sigtab<-rbind(data.frame(upsig,signature='white pulp'),
               data.frame(downsig,signature='red pulp'))
 
-write.table(sigtab,file='suppTableGenesInRedWhiteSig.csv',sep=',',row.names=F,col.names=T)
+#write.table(sigtab,file='suppTableSortedGenesInRedWhiteSig.csv',sep=',',row.names=F,col.names=T)
 ```
 
-## Plot values in heatmap
-Let's now plot the signatures in heatmaps of the original and spatial data.
+### Using histology
 
+Here we can use the histology measurements to label and analyze the segments.
+
+```{r sig hist}
+
+
+##proteomics data
+spatDiff<-spatialDiffEx(pumap,column='Histology',vals=c('red','white'),'Protein')|>
+   rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='Protein',
+                logFC='Histology.limma.logFC',
+                adj.P.Val='Histology.limma.adj.P.Val',
+                pval='Histology.limma.P.Value',
+                AveExpr='Histology.limma.AveExpr')|>
+  mutate(Signif=adj.P.Val<0.05,LogAdjP=log10(adj.P.Val)*-1)
+
+##phosphoproteomics
+phosDiff<-spatialDiffEx(phumap,column='Histology',vals=c('red','white'),'X')|>
+   rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='Histology.limma.logFC',
+                adj.P.Val='Histology.limma.adj.P.Val',
+                pval='Histology.limma.P.Value',
+                AveExpr='Histology.limma.AveExpr')|>
+  mutate(Signif=adj.P.Val<0.05,LogAdjP=log10(adj.P.Val)*-1)
+
+write.csv(spatDiff,'suppTable_histDiffExProt.csv',sep=',',row.names=F)
+write.csv(phosDiff,'suppTable_histDiffExPhos.csv',sep=',',row.names=F)
+
+##volcano plots of both
+p1<-ggplot(spatDiff,aes(x=logFC,y=LogAdjP,col=Signif))+geom_point()+theme_minimal()+scale_color_manual(values=c('darkgrey','darkred'))
+p2<-ggplot(phosDiff,aes(x=logFC,y=LogAdjP,col=Signif))+geom_point()+theme_minimal()+scale_color_manual(values=c('darkgrey','darkred'))
+
+p3<-cowplot::plot_grid(p1,p2,labels=c('Proteomics','Phosphoproteomics'),nrow=1)
+
+p3
+ggsave('fig2bc_volcano.pdf',p3,width=20)
+
+diffExUpRegProts<-spatDiff|>
+  subset(adj.P.Val<0.05)|>
+  subset(logFC>0)
+
+print(diffExUpRegProts)
+
+diffExUpRegPhos<-phosDiff|>
+  subset(adj.P.Val<0.05)|>
+  subset(logFC>0)
+
+print(diffExUpRegPhos)
+
+##labeled umap of both
+
+```
+
+
+
+## Plot  signature values in boxplot
+
+How well do the differentially expressed proteins transfer to sorted data.
 
 ```{r pressure, echo=FALSE}
 library(pheatmap)
+library(ggplot2)
+
+##annotate the proteins from the differential expression
+tissueProtsFromDiffex<-spatDiff|>
+  mutate(diffExAssignment=ifelse(logFC>0,'white','red'))|>
+  dplyr::select(prot='featureID',Signif,diffExAssignment)|>
+  distinct()
 
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
+tissuePhosFromDiffex<-phosDiff|>
+  mutate(diffExAssignment=ifelse(logFC>0,'white','red'))|>
+  dplyr::select(prot='featureID',Signif,diffExAssignment)|>
+  distinct()
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature',filename='suppFigWhitePulpSorted.pdf')
+##grab each of the expression datasets to plot in boxplot
+protExp<-expToLongForm(pumap,spotAnnotes='Histology')|>
+  left_join(tissueProtsFromDiffex)
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(upsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+phosExp<-expToLongForm(phumap,spotAnnotes = 'Histology')|>
+  left_join(tissuePhosFromDiffex)
+
+sortedProt<-expToLongForm(fullmap,spotAnnotes='pulpAnnotation')|>
+    left_join(tissueProtsFromDiffex)
+
+sortedPhos<-expToLongForm(phospho.sorted,spotAnnotes='pulpAnnotation')|>
+    left_join(tissuePhosFromDiffex)
+
+p1<-ggplot(subset(protExp,Signif),aes(x=diffExAssignment,y=LogRatio,fill=Histology))+geom_boxplot()+scale_fill_manual(values=list(red='darkred',white='lightgrey',mixed='skyblue'))+theme_minimal()
+p2<-ggplot(subset(phosExp,Signif),aes(x=diffExAssignment,y=LogRatio,fill=Histology))+geom_boxplot()+scale_fill_manual(values=list(red='darkred',white='lightgrey',mixed='skyblue'))+theme_minimal()
 
 
-pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
-pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature',filename='suppFigREdPulpSorted.pdf')
+##compare boxplots of tissue
+p3<-ggplot(subset(sortedProt,Signif),aes(x=diffExAssignment,y=LogRatio,fill=pulpAnnotation))+geom_boxplot()+scale_fill_manual(values=list(red='darkred',white='lightgrey',mixed='skyblue'))+theme_minimal()
+p4<-ggplot(subset(sortedPhos,Signif),aes(x=diffExAssignment,y=LogRatio,fill=pulpAnnotation))+geom_boxplot()+scale_fill_manual(values=list(red='darkred',white='lightgrey',mixed='skyblue'))+theme_minimal()
+
+pf<-cowplot::plot_grid(p1,p2,p3,p4,labels=c('Spatial Proteomics','Spatial Phosphoproteomics','Sorted Proteomics','Sorted Phosphoproteomics'))
+pf
+ggsave('suppFigDiffExValidation.pdf',pf,width=12)
+
+###old heatmap code
+#pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature')
+#pheatmap(as.matrix(exprs(fullmap)[rownames(upsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp signature',filename='suppFigWhitePulpSorted.pdf')
+#pheatmap(as.matrix(exprs(pumap)[intersect(rownames(upsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+#pheatmap(as.matrix(exprs(fullmap)[intersect(rownames(exprs(fullmap)),rownames(diffExUpRegProts)),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp proptein')
+#pheatmap(as.matrix(exprs(phospho.sorted)[intersect(rownames(exprs(phospho.sorted)),rownames(diffExUpRegPhos)),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth = 10,main='White pulp phospho')
 
 
-pheatmap(as.matrix(exprs(pumap)[intersect(rownames(downsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
+annotes<-subset(colData(phumap),!is.na(Histology))|>
+  as.data.frame()|>
+  dplyr::select(Histology,TMT.set)
+cl<-colorspace::sequential_hcl(n=20)
+names(cl)=seq(1,20)
+ac<-list(Histology=c(white='lightgrey',red='darkred',mixed='skyblue'),TMT.colors=cl)
+
+pheatmap(as.matrix(exprs(phumap)[rownames(diffExUpRegPhos),]),annotation_col = annotes,
+         main='White pulp phosphosites',annotation_colors = ac,cellheight = 10,file='suppFig2_diffExWHitePHos.pdf')
+
+#pheatmap(as.matrix(exprs(pumap)[intersect(rownames(upsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='White pulp signature')
+
+#pheatmap(as.matrix(exprs(pumap)[rownames(diffExUpRegProts),]),annotation_col = as.data.frame(colData(pumap))[,c('Histology','TMT.set')],
+#         cellheight=10,cellwidth=1,main='White pulp proteins',annotation_colors = ac,file='suppFig2_diffExWhiteProt.pdf')
+
+#pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulp signature')
+#pheatmap(as.matrix(exprs(fullmap)[rownames(downsig),]),annotation_col = as.data.frame(colData(fullmap)),cellwidth=10,main='Red pulsp signature',filename='suppFigREdPulpSorted.pdf')
+#pheatmap(as.matrix(exprs(pumap)[intersect(rownames(downsig),rownames(rowData(pumap))),]),annotation_col = as.data.frame(colData(pumap))[,c('pulpAnnotation','TMT.set')],main='Red pulp signature')
 
 
 ```
 
-These signatures cluster voxels, but don't serve as great markers because tehy are still very much 'down' regulated. We want to pick the top expressed proteins that represent each pulp type.
+## PCA plots of spatial data with assignments
 
+```{r assign signatures}
 
+##assign scores to individual data sets
+pumap<-calcSigScore(pumap,rownames(diffExUpRegProts),'WhitePulpProt')
+phumap<-calcSigScore(phumap,rownames(diffExUpRegPhos),'WhitePulpPhos')
 
+##then assign scores to opposite datasets
+colData(phumap)<-cbind(colData(phumap),WhitePulpProt=colData(pumap)$WhitePulpProt)
+colData(pumap)<-cbind(colData(pumap),WhitePulpPhos=colData(phumap)$WhitePulpPhos)
+
+p1<-plotPCA(pumap,color_by='WhitePulpProt')+theme_minimal()
+#p2<-plotPCA(pumap,color_by='WhitePulpPhos')
+
+p3<-plotPCA(phumap,color_by='WhitePulpPhos')+theme_minimal()
+#p4<-plotPCA(phumap,color_by='WhitePulpProt')
+
+res<-cowplot::plot_grid(p1,p3,labels=c('Proteomics','Phosphoprotoemics'))
+ggsave('fig2de_pca.pdf',res,width=20)
+```
 So we have a handful of proteins that are marking the signature. Let's see if we can link them in a biological fashion.
 
 
@@ -115,7 +246,7 @@ p2<-plotPCA(pumap,color_by='RedPulp')
 p3<-cowplot::plot_grid(p2,p1)
 p3
 
-ggsave('fig2_pcaLabeledByScore.pdf',p3,width=12)
+ggsave('old_fig2_pcaLabeledByScore.pdf',p3,width=14)
 
 ```
 
@@ -136,7 +267,7 @@ Lastly we want to plot a set of scores, in this case the signature scores, in an
 
  pc<-cowplot::plot_grid(p,p1)
  pc
- ggsave('fig2_scoredImage.pdf',pc,width=12)
+ ggsave('old_fig2_scoredImage.pdf',pc,width=14,height=4)
 ```
 
 Now that we have a rank score, we can "call" each voxel. 
@@ -156,7 +287,7 @@ p2<-ggplot(newDat,aes(x=Xcoord,y=Ycoord,fill=pulp))+geom_raster()+scale_fill_man
 
 res<-cowplot::plot_grid(p1,p2)
 res
-ggsave('fig2_assignedVals.pdf',res,width=12)
+ggsave('old_fig2_assignedVals.pdf',res,width=14,height=)
 ```
 
 
