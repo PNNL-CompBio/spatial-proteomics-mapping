@@ -1,0 +1,130 @@
+---
+title: "Figure 5 - network analysis"
+author: "Sara Gosline"
+date: "2023-07-27"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(ggfortify)
+library(cowplot)
+#library(leapR)
+library(dplyr)
+
+source('spleenDataFormatting.R')
+#library(spammer)
+source('spatialProtUtils.R')
+```
+
+The assignment of pulp type from the basic data was not robust. Here we will use the cell type signatures from the sorted data to label the voxels.
+
+
+## Cell type signatures
+
+### using sorted cells
+Here we get the differential expression from the sorted cells, and try to map them to spatial
+
+```{r cell type signatures}
+
+
+##get fit values for diffex
+pumap<-scater::runPCA(spat.prot)
+
+phumap<-spat.phos%>%
+  scater::runPCA()
+##proteomics data
+spatDiff<-spatialDiffEx(pumap,column='Histology',vals=c('red','white'),'Protein')|>
+   rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='Protein',
+                logFC='Histology.limma.logFC',
+                adj.P.Val='Histology.limma.adj.P.Val',
+                pval='Histology.limma.P.Value',
+                AveExpr='Histology.limma.AveExpr')|>
+  mutate(Signif=adj.P.Val<0.05,LogAdjP=log10(adj.P.Val)*-1)
+
+##phosphoproteomics
+phosDiff<-spatialDiffEx(phumap,column='Histology',vals=c('red','white'),'X')|>
+   rowData(.)%>%
+  as.data.frame()%>%
+  dplyr::select(featureID='X',
+                logFC='Histology.limma.logFC',
+                adj.P.Val='Histology.limma.adj.P.Val',
+                pval='Histology.limma.P.Value',
+                AveExpr='Histology.limma.AveExpr')|>
+  mutate(Signif=adj.P.Val<0.05,LogAdjP=log10(adj.P.Val)*-1)
+
+diffExUpRegProts<-spatDiff|>
+  subset(pval<0.05)|>
+  subset(logFC>0)
+
+print(diffExUpRegProts)
+
+diffExUpRegPhos<-phosDiff|>
+  subset(pval<0.1)|>
+  subset(logFC>0)
+
+```
+
+now we have various choices of how we run the networks
+
+```{r run networks}
+
+all.phos<-phosDiff$logFC
+names(all.phos)<-stringr::str_replace(phosDiff$featureID,'_','-')
+
+sig.phos<-diffExUpRegPhos$logFC
+names(sig.phos)<-stringr::str_replace(diffExUpRegPhos$featureID,'_','-')
+
+all.prot<-spatDiff$logFC
+names(all.prot)<-spatDiff$featureID
+
+sig.prot<-diffExUpRegProts$logFC
+names(sig.prot)<-diffExUpRegProts$featureID
+
+protNet<-buildNetwork(sig.prot.vals=sig.prot,
+                       sig.phos.vals=c(),
+                       all.prot.vals=all.prot,
+                       all.phos.vals=c(),
+                       beta=10,nrand=1000,featName='whitePulpProt')
+
+phosNet<-buildNetwork(sig.prot.vals=c(),
+                       sig.phos.vals=sig.phos,
+                       all.prot.vals=all.prot,
+                       all.phos.vals=all.phos,
+                       beta=5,nrand=1000,featName='whitePulpPhos')
+
+
+combNet<-buildNetwork(sig.prot.vals=sig.prot,
+                       sig.phos.vals=sig.phos,
+                       all.prot.vals=all.prot,
+                       all.phos.vals=all.phos,
+                       beta=5,nrand=1000,featName='whitePulpAll')
+
+nodes<-names(V(combNet$graph))
+#V(combNet$graph)
+
+##now we save the node information
+##save node infor
+```
+
+The network approach was able to identify known white pulp proteins that were not in the global data (CD209, CD19, CD44, CD4)
+
+```{r node stats}
+
+node_stats<-readr::read_csv('whitePulpPhosnetwork.gml default node.csv')
+
+p<-node_stats|>
+  subset(BetweennessCentrality>0.05)|>
+  ggplot(aes(x=reorder(name,BetweennessCentrality),y=BetweennessCentrality,fill=logFoldChange))+
+  geom_bar(stat='identity')+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ ggsave('centrality.pdf',p)
+ 
+ p
+```
