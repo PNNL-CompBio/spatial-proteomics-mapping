@@ -32,6 +32,9 @@ prot.file<-'../../Projects/HubMap/spleen/AfterBatchCorrection_global.txt'
 phos.file<-'../../Projects/HubMap/spleen/Phospho_70percValidvalues.txt'
 
 
+uncor.prot<-'../../Projects/HubMap/Spleen/ratio_gene_None.tsv'
+uncor.phos<-'../../Projects/HubMap/spleen/ratio_single-site_None.tsv'
+
 loadMetadata<-function(){
   tab<-readxl::read_xlsx(new.md.file)
   return(tab) 

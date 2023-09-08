@@ -252,8 +252,18 @@ buildNetwork<-function(sig.prot.vals=c(),
     adf<-apply(kdat,1,function(x)
       #for each substrate interaction, add a link from the kinase gene -> substreate -> substrate gene
       data.frame(from=c(x[['GENE']],x[['subval']]),to=c(x[['subval']],x[['SUB_GENE']]),
-                 cost=c(mval/2,mval/8)))%>%  ##arbitrary costs based on mean cost of edges around network
+                 cost=c(mval,mval/8)))%>%  ##arbitrary costs based on mean cost of edges around network
       do.call(rbind,.)
+    
+    ##new feature: if there are substrates without kinases, still add them. 
+    missed<-setdiff(names(sig.phos.vals),union(adf$from,adf$to))
+    print(paste('found',length(missed),'phosphosites that dont have kinases, adding to substrates'))
+    missed_subs<-sapply(missed,function(x) unlist(strsplit(x,split='-'))[1])
+    #print(missed_subs)
+    newdf<-data.frame(from=names(missed_subs),to=missed_subs,cost=rep(mval/8,length(missed_subs)))
+   # print(head(newdf))
+    adf<-rbind(adf,unique(newdf))
+          
   }else{
     adf<-data.frame()
   } 
@@ -353,3 +363,21 @@ plotResult<-function(enrich_res){
   res
 }
 
+
+##assume we have some phospho diffex values?
+kinaseEnrichment<-function(sce,feature='Phosphosite',FC='Histology.limma.logFC',p='Histology.limma.adj.P.Val'){
+  library(KSEAapp)
+  ks<-readr::read_csv("https://raw.githubusercontent.com/casecpb/KSEA/master/PSP%26NetworKIN_Kinase_Substrate_Dataset_July2016.csv")
+  
+  phosDiff<-rowData(sce)
+  PX<-phosDiff|>
+    dplyr::rename(p=p,FC=FC)|>
+    dplyr::mutate(Peptide='')|>
+    dplyr::select(Protein,Gene,Peptide,Residue.Both,p,FC)
+  
+  KSEA.Complete(ks, PX, NetworKIN=TRUE, NetworKIN.cutoff=1, m.cutoff=1, p.cutoff=0.05)
+  res<-readr::read_csv('KSEA Kinase Scores.csv')
+  links<-readr::read_csv("Kinase-Substrate Links.csv")
+  
+  
+}
