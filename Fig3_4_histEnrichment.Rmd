@@ -159,17 +159,17 @@ So we can find insignifincant enrichment in B celland T cells due to low coverag
 ```{r immune markers}
 #now many are in the dataset!
 #dlm22<-dlm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
-rlm22<-lm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
-
-print(subset(rlm22,inProt)|>group_by(cellType)|>summarize(n()))
-##only 28 markers of the 547 are expressed in this dataset
-
-expLM22<-subset(rlm22,inProt)
-pheatmap(as.matrix(exprs(pumap)[intersect(expLM22$`Gene symbol`,rownames(rowData(pumap))),]),
-         clustering_distance_cols = 'correlation',clustering_distance_rows='correlation',
-         clustering_method = 'ward.D2',
-         annotation_col = as.data.frame(colData(pumap))[,c('Histology','TMT.set')],
-         main='White pulp upregulated',cellheight = 10,filename='fig3lm22Markers.pdf')
+# rlm22<-lm22|>mutate(inProt=`Gene symbol`%in%rownames(exprs(pumap)))
+# 
+# print(subset(rlm22,inProt)|>group_by(cellType)|>summarize(n()))
+# ##only 28 markers of the 547 are expressed in this dataset
+# 
+# expLM22<-subset(rlm22,inProt)
+# pheatmap(as.matrix(exprs(pumap)[intersect(expLM22$`Gene symbol`,rownames(rowData(pumap))),]),
+#          clustering_distance_cols = 'correlation',clustering_distance_rows='correlation',
+#          clustering_method = 'ward.D2',
+#          annotation_col = as.data.frame(colData(pumap))[,c('Histology','TMT.set')],
+#          main='White pulp upregulated',cellheight = 10,filename='fig3lm22Markers.pdf')
 
 #figs<-lapply(unique(expLM22$`cellType`),function(ctype){
 #  print(ctype)
@@ -190,6 +190,7 @@ expMcp<-mcptab|>
 figs<-lapply(unique(expMcp$`Cell population`),function(ctype){
   print(ctype)
   prots<-expMcp$`HUGO symbols`[which(expMcp$`Cell population`==ctype)]
+  print(paste(prots,collapse=','))
   plotFeatureGrid(pumap,prots,gsub(" ",'',ctype),'Histology')
 })
 
@@ -203,14 +204,10 @@ The differential expression of the protein is not super significant
 data('krbpaths')
 data('kinasesubstrates')
 
-phosDiff<-phumap|>rowData(.)%>%
-  as.data.frame()%>%
-  dplyr::select(featureID='X',
-                logFC='Histology.limma.logFC',
-                adj.P.Val='Histology.limma.adj.P.Val',
-                AveExpr='Histology.limma.AveExpr')|>
-  mutate(Phosphosite=stringr::str_replace(featureID,'_','-'))
-  
+kres<-ksea(phumap,feature='X')
+
+p<-plotKsea(kres)
+
 pfDiff<-phosDiff|>
   tidyr::separate(featureID,into=c('prot','psite'))|>
   group_by(prot)|>
@@ -221,8 +218,6 @@ path.enrich<-leapR::leapR(geneset=krbpaths,
                           datamatrix=as.data.frame(pfDiff),
                           id_column='prot',primary_columns='mlfc',greaterthan=T,threshold=.45)|>
   subset(pvalue<0.05)
-
-plotResult(path.enrich)
 
 gosigs <- leapR::read_gene_sets('GO_Biological_Process_2021.txt')
 
@@ -241,15 +236,14 @@ kin.enrich<-leapR::leapR(geneset=kinasesubstrates,
     subset(ingroup_n>1)|>
   subset(pvalue<0.05)
 
-kin<-plotResult(kin.enrich)
-kin
-ggsave('fig4a_kinaseEnrichment.pdf',kin)
 
-csnk2a1<-stringr::str_split(kin.enrich['CSNK2A1','ingroupnames'],', ')|>unlist()
+ggsave('fig4a_kinaseEnrichment.pdf',p)
 
-p1<-lapply(csnk2a1,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x,'Histology'))
-p1<-cowplot::plot_grid(plotlist=p1,nrow=4,labels=csnk2a1)
-ggsave('fig4b_sigSubs.pdf',p1,width=12)
+#csnk2a1<-stringr::str_split(kin.enrich['CSNK2A1','ingroupnames'],', ')|>unlist()
+
+#p1<-lapply(csnk2a1,function(x) plotFeatureGrid(phumap,gsub('-','_',x),x,'Histology'))
+#p1<-cowplot::plot_grid(plotlist=p1,nrow=4,labels=csnk2a1)
+#ggsave('fig4b_sigSubs.pdf',p1,width=12)
 
 ```
 

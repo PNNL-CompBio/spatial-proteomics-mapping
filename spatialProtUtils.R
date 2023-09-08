@@ -364,20 +364,41 @@ plotResult<-function(enrich_res){
 }
 
 
+plotKsea<-function(full.res,pvalthresh=0.05){
+  library(ggplot2)
+  sigRes<-subset(full.res,p.value<pvalthresh)|>
+    dplyr::select(Kinase.Gene,mS,p.value)|>distinct()|>
+    mutate(up=(mS>0))|>
+             mutate(logP=log10(p.value))
+  p<-ggplot(sigRes,aes(y=mS,x=reorder(Kinase.Gene,mS),fill=logP))+geom_bar(stat='identity')+coord_flip()
+  return(p)
+}
+
 ##assume we have some phospho diffex values?
-kinaseEnrichment<-function(sce,feature='Phosphosite',FC='Histology.limma.logFC',p='Histology.limma.adj.P.Val'){
+ksea<-function(sce,feature='Phosphosite',FC='Histology.limma.logFC',p='Histology.limma.adj.P.Val'){
   library(KSEAapp)
   ks<-readr::read_csv("https://raw.githubusercontent.com/casecpb/KSEA/master/PSP%26NetworKIN_Kinase_Substrate_Dataset_July2016.csv")
   
-  phosDiff<-rowData(sce)
+  phosDiff<-rowData(sce)|>as.data.frame()
   PX<-phosDiff|>
     dplyr::rename(p=p,FC=FC)|>
+    dplyr::rename(feature=feature)|>
     dplyr::mutate(Peptide='')|>
-    dplyr::select(Protein,Gene,Peptide,Residue.Both,p,FC)
+    tidyr::separate(feature,into=c("Protein",'Residue.Both'),sep='_')
+  
+  if(!'Gene'%in%colnames(PX))
+    PX$Gene<-PX$Protein
+  PX<-PX|>dplyr::select(Protein,Gene,Peptide,Residue.Both,p,FC)
   
   KSEA.Complete(ks, PX, NetworKIN=TRUE, NetworKIN.cutoff=1, m.cutoff=1, p.cutoff=0.05)
   res<-readr::read_csv('KSEA Kinase Scores.csv')
   links<-readr::read_csv("Kinase-Substrate Links.csv")
+  full.res<-res|>left_join(links,by='Kinase.Gene')
   
+  return(full.res)
+}
+
+gsea<-function(sce,gl,feature="Protein",FC='Histology.limma.logFC'){
+  library(GSVA)
   
 }
